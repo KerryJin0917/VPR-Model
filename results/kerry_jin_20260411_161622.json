@@ -1,0 +1,22 @@
+{
+  "student_id": "kerry_jin",
+  "timestamp": "20260411_161622",
+  "prediction_path": "project-vpr/results/dataset_a.csv",
+  "datasets": {
+    "dataset_a": {
+      "performance": {
+        "R@1": 44.64579901153213,
+        "R@5": 59.80230642504119,
+        "R@10": 66.72158154859967,
+        "R@20": 74.13509060955519,
+        "mAP@20": 51.72972477224087
+      },
+      "submission_info": {
+        "num_database": 607,
+        "num_queries": 607,
+        "num_predicted_queries": 607,
+        "num_missing_queries": 0
+      }
+    }
+  }
+}

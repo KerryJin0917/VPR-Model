@@ -1,0 +1,22 @@
+{
+  "student_id": "kerry_jin_dinov2",
+  "timestamp": "20260411_162754",
+  "prediction_path": "project-vpr/results/dinov2_dataset_a.csv",
+  "datasets": {
+    "dataset_a": {
+      "performance": {
+        "R@1": 56.34266886326195,
+        "R@5": 74.46457990115321,
+        "R@10": 82.53706754530478,
+        "R@20": 86.16144975288303,
+        "mAP@20": 64.86784222632377
+      },
+      "submission_info": {
+        "num_database": 607,
+        "num_queries": 607,
+        "num_predicted_queries": 607,
+        "num_missing_queries": 0
+      }
+    }
+  }
+}

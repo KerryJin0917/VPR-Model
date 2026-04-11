@@ -1,0 +1,101 @@
+# COMP560 Project: Visual Place Recognition
+
+## Task
+
+Build a system that retrieves the most similar database images for a given query image of a place. For each query, produce a ranked list of database indices.
+
+## Datasets
+
+| Dataset | Database | Queries | Matching | Image Size |
+|---------|----------|---------|----------|------------|
+| dataset_a | 607 | 607 | Index-based (1-to-1) | 224x224 |
+| dataset_b | Large-scale, multi-city | Multi-city | GPS-based (25m threshold) | 224x224 |
+
+Data format (Parquet):
+- `test.parquet`: image metadata (image_path, split/role, utm_east, utm_north)
+
+**dataset_a**: 1-to-1 matching where query[i] matches database[i].
+
+**dataset_b**: Large-scale multi-city dataset. A database image is positive if within 25m of the query GPS location.
+
+## Submission Format
+
+Submit a CSV file per dataset with columns:
+
+```csv
+query_index,ranked_database_indices
+0,"45,12,78,3,99,..."
+1,"102,5,67,23,11,..."
+...
+```
+
+- `query_index`: 0-based query index
+- `ranked_database_indices`: comma-separated database indices sorted by similarity (most similar first), at least top-20
+
+## Evaluation
+
+```bash
+# Evaluate on dataset_a
+python evaluate.py --student_id YOUR_ID --prediction predictions/dataset_a.csv --datasets dataset_a
+
+# Evaluate on both (pass a directory)
+python evaluate.py --student_id YOUR_ID --prediction predictions/ --datasets dataset_a dataset_b
+```
+
+## Baseline
+
+Generate baseline predictions using pretrained ResNet50:
+
+```bash
+python models/resnet_baseline.py --dataset_root ./datasets/dataset_a --dataset_name dataset_a --output predictions/dataset_a.csv
+python models/resnet_baseline.py --dataset_root ./datasets/dataset_b --dataset_name dataset_b --output predictions/dataset_b.csv
+```
+
+## Training Example
+
+Train a ResNet50 model with contrastive or triplet loss:
+
+```bash
+python train_example.py --data_root ./datasets/dataset_b --loss contrastive --epochs 20
+python train_example.py --data_root ./datasets/dataset_b --loss triplet --epochs 20
+```
+
+Generate predictions from a trained checkpoint:
+
+```bash
+python train_example.py --predict --checkpoint ./checkpoints/best_model.pth --dataset_root ./datasets/dataset_a --dataset_name dataset_a --output predictions/dataset_a.csv
+python train_example.py --predict --checkpoint ./checkpoints/best_model.pth --dataset_root ./datasets/dataset_b --dataset_name dataset_b --output predictions/dataset_b.csv
+```
+
+## Metrics
+
+- **R@1, R@5, R@10, R@20**: Recall at K (at least one correct match in top-K)
+- **mAP@20**: Mean Average Precision at K=20
+
+## Grading
+
+- 40% Performance (Recall@K, mAP metrics)
+- 30% Efficiency (model design, embedding dimension)
+- 30% Report
+
+## Directory Structure
+
+```
+project-vpr/
+├── datasets/
+│   ├── dataset_a/
+│   │   ├── images/
+│   │   │   └── test/
+│   │   │       ├── database/
+│   │   │       └── queries/
+│   │   └── test.parquet
+│   └── dataset_b/
+│       ├── images/          # Multi-city image directories
+│       ├── train.parquet
+│       └── test.parquet
+├── models/
+│   └── resnet_baseline.py   # Baseline prediction generator
+├── evaluate.py              # Evaluation script
+├── train_example.py         # Training example
+└── results/                 # Output directory
+```
