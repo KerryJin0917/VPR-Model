@@ -46,10 +46,14 @@ class VPRTrainDataset(Dataset):
 
         self.transform = transforms.Compose([
             transforms.Resize(image_size),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomResizedCrop(image_size, scale=(0.7, 1.0)),
-            transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.3, hue=0.1),
+            # NEW: More aggressive augmentation for MSLS/GSV
+            transforms.RandomApply([
+                transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.1)
+            ], p=0.8),
             transforms.RandomGrayscale(p=0.1),
+            transforms.RandomHorizontalFlip(p=0.5),
+            # Handles different camera viewpoints in MSLS
+            transforms.RandomResizedCrop(image_size, scale=(0.7, 1.0), ratio=(0.9, 1.1)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
@@ -150,24 +154,45 @@ class TripletLoss(nn.Module):
 # Model
 # ============================================================================
 
+class GeM(nn.Module):
+    def __init__(self, p=3, eps=1e-6):
+        super().__init__()
+        self.p = nn.Parameter(torch.ones(1) * p)
+        self.eps = eps
+    def forward(self, x):
+        # x is (B, C, H, W)
+        return F.avg_pool2d(x.clamp(min=self.eps).pow(self.p), (x.size(-2), x.size(-1))).pow(1./self.p)
+
 class TrainableModel(nn.Module):
     def __init__(self, embedding_dim=512):
         super().__init__()
-        # IntelliJ will download this to your local ~/.cache/torch/hub folder
+        # Load DINOv2 without the head
         self.backbone = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14')
 
-        # DINOv2-Small (vits14) outputs 384 dimensions
+        # New: GeM Pooling layer
+        self.pooling = GeM()
+
+        # DINOv2-Small (vits14) outputs 384 channels per spatial location
         self.head = nn.Sequential(
+            nn.Flatten(),
             nn.Linear(384, 512),
+            nn.LayerNorm(512), # Added for stability at large scale
             nn.ReLU(),
             nn.Linear(512, embedding_dim)
         )
 
-
     def forward(self, x):
-        # DINOv2 returns the CLS token by default
-        features = self.backbone(x)
-        return self.head(features)
+        # Change: Get spatial features instead of just CLS token
+        # For DINOv2, we get features from the last layer
+        features = self.backbone.get_intermediate_layers(x, n=1)[0] # (B, 256, 384)
+
+        # Reshape tokens back to spatial grid (224/14 = 16)
+        b, n, c = features.shape
+        h = w = int(math.sqrt(n))
+        features = features.transpose(1, 2).reshape(b, c, h, w) # (B, 384, 16, 16)
+
+        pooled = self.pooling(features)
+        return self.head(pooled)
 
     def encode(self, x):
         return F.normalize(self.forward(x), p=2, dim=1)
