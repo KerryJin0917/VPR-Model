@@ -5,7 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="4917ca8b-7155-415a-9c4c-47a782ab4aec" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/project-vpr/models/dinov2_baseline.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/project-vpr/LearnerPR.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -43,7 +44,7 @@
     "RunOnceActivity.git.unshallow": "true",
     "git-widget-placeholder": "main",
     "kotlin-language-version-configured": "true",
-    "last_opened_file_path": "C:/Users/Kerry Jin/IdeaProjects/VPR-Model/project-vpr/models",
+    "last_opened_file_path": "C:/Users/Kerry Jin/IdeaProjects/VPR-Model",
     "project.structure.last.edited": "SDKs",
     "project.structure.proportion": "0.15",
     "project.structure.side.proportion": "0.2",
@@ -52,9 +53,11 @@
 }]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\Kerry Jin\IdeaProjects\VPR-Model" />
       <recent name="C:\Users\Kerry Jin\IdeaProjects\VPR-Model\project-vpr\models" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\Kerry Jin\IdeaProjects\VPR-Model\project-vpr" />
       <recent name="C:\Users\Kerry Jin\IdeaProjects\VPR-Model" />
     </key>
   </component>
