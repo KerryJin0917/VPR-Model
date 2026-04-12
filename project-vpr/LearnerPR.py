@@ -153,24 +153,16 @@ class TripletLoss(nn.Module):
 class TrainableModel(nn.Module):
     def __init__(self, embedding_dim=512):
         super().__init__()
-        # Load the code locally from your project folder
-        self.backbone = torch.hub.load(
-            repo_or_dir='/nas/longleaf/home/jinkerry/project-vpr/dinov2',
-            model='dinov2_vits14',
-            source='local',
-            pretrained=False
-        )
+        # IntelliJ will download this to your local ~/.cache/torch/hub folder
+        self.backbone = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14')
 
-        # Load the weights you uploaded to your weights folder
-        state_dict = torch.load('./weights/dinov2_vits14_pretrain.pth', map_location='cpu')
-        self.backbone.load_state_dict(state_dict)
-
-        # Head stays the same (384 for DINOv2-Small)
+        # DINOv2-Small (vits14) outputs 384 dimensions
         self.head = nn.Sequential(
             nn.Linear(384, 512),
             nn.ReLU(),
             nn.Linear(512, embedding_dim)
         )
+
 
     def forward(self, x):
         # DINOv2 returns the CLS token by default
