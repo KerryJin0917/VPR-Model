@@ -150,7 +150,7 @@ class TripletLoss(nn.Module):
 # Model
 # ============================================================================
 
-class LearnerPRModel(nn.Module):
+class TrainableModel(nn.Module):
     def __init__(self, embedding_dim=512):
         super().__init__()
         # Load DINOv2-Small (vits14)
