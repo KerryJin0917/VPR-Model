@@ -18,6 +18,11 @@ print(f"Combining {len(csv_files)} city dataframes...")
 all_dfs = [pd.read_csv(f) for f in csv_files]
 df = pd.concat(all_dfs, ignore_index=True)
 
+# Construct the image_path column
+# We combine the city name and the panoid (from your head command) to match the file structure
+# Based on your file list: Images/CityName/panoid.jpg
+df['image_path'] = "Images/" + df['city_id'].astype(str) + "/" + df['panoid'].astype(str) + ".jpg"
+
 # 3. Generate unique identities based on Latitude and Longitude
 # As seen in your head command: lat, lon are the correct column names
 print("Using 'lat' and 'lon' columns for identity mapping.")
