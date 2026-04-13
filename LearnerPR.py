@@ -105,6 +105,25 @@ class VPRTestDataset(Dataset):
 # Loss Functions
 # ============================================================================
 
+class RKDLoss(nn.Module):
+    """Relational Knowledge Distillation: Distance-wise distillation."""
+    def __init__(self, w_dist=1.0):
+        super().__init__()
+        self.w_dist = w_dist
+
+    def forward(self, student_feats, teacher_feats):
+        # Calculate pair-wise Euclidean distances
+        s_dist = torch.pdist(student_feats)
+        t_dist = torch.pdist(teacher_feats)
+
+        # Normalize distances so the scale of the embeddings doesn't matter
+        s_dist = s_dist / (s_dist.mean() + 1e-7)
+        t_dist = t_dist / (t_dist.mean() + 1e-7)
+
+        # Loss is the structural difference between the two distance maps
+        loss = F.smooth_l1_loss(s_dist, t_dist)
+        return loss * self.w_dist
+
 class ContrastiveLoss(nn.Module):
     """NT-Xent (InfoNCE) contrastive loss for place recognition."""
 
@@ -216,8 +235,16 @@ def train(args):
 
     print(f"Training set: {len(dataset)} images, {dataset.num_classes} places")
 
-    # Model
+    # Model (Student)
     model = TrainableModel(embedding_dim=args.embedding_dim).to(device)
+
+    # Load Teacher (e.g., DINOv2-Large)
+    print("Loading Teacher model (DINOv2-Large)...")
+    teacher = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitl14').to(device)
+    teacher.eval() # CRITICAL: Teacher is frozen
+    for param in teacher.parameters():
+        param.requires_grad = False
+
 
     # Loss
     if args.loss == "contrastive":
@@ -226,6 +253,11 @@ def train(args):
         criterion = TripletLoss(margin=args.margin)
     else:
         raise ValueError(f"Unknown loss: {args.loss}")
+
+        # RKD Loss (Add this separately)
+    rkd_criterion = None
+    if args.use_distill:
+        rkd_criterion = RKDLoss(w_dist=1.0).to(device)
 
     # Optimizer
     backbone_params = list(model.backbone.parameters())
@@ -267,10 +299,31 @@ def train(args):
 
         for images, labels in pbar:
             images = images.to(device)
-            labels = labels.to(device)
+        labels = labels.to(device)
 
-            embeddings = model(images)
-            loss = criterion(embeddings, labels)
+        # 1. New: Get Teacher embeddings (Frozen, no gradients needed)
+        with torch.no_grad():
+            teacher_embeddings = teacher(images)
+            teacher_embeddings = F.normalize(teacher_embeddings, p=2, dim=1)
+
+        #2. Existing: Get Student embeddings
+        embeddings = model(images)
+
+        # 3. New: Generate normalized version for RKD loss computation
+        embeddings_norm = F.normalize(embeddings, p=2, dim=1)
+
+        # 4. Existing: Standard cross-entropy / contrastive loss
+        base_loss = criterion(embeddings, labels)
+
+        # 5. New: Distillation Loss calculation
+        # Only calculate if a distillation flag is active (if you set one up)
+        if args.use_distill:
+            rkd_loss = rkd_criterion(embeddings_norm, teacher_embeddings)
+            # alpha balances the two losses; 10.0 is a typical starting value
+            alpha = 10.0
+            loss = base_loss + (alpha * rkd_loss)
+        else:
+            loss = base_loss
 
             optimizer.zero_grad()
             loss.backward()
