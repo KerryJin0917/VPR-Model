@@ -18,18 +18,20 @@ print(f"Combining {len(csv_files)} city dataframes...")
 all_dfs = [pd.read_csv(f) for f in csv_files]
 df = pd.concat(all_dfs, ignore_index=True)
 
-# 3. Generate unique identities based on UTM coordinates
-# Combining coordinates ensures each unique location has a unique ID
-df['identity'] = df['utm_east'].astype(str) + "_" + df['utm_north'].astype(str)
+# 3. Generate unique identities based on Latitude and Longitude
+# As seen in your head command: lat, lon are the correct column names
+print("Using 'lat' and 'lon' columns for identity mapping.")
+df['identity'] = df['lat'].astype(str) + "_" + df['lon'].astype(str)
 
-# 4. Convert identities into numeric class labels
+# 4. Convert these strings into numeric class labels for the model
 unique_locations = df['identity'].unique()
 id_map = {loc: i for i, loc in enumerate(unique_locations)}
 df['identity'] = df['identity'].map(id_map)
 
-# 5. Save the final merged file as train.parquet in the root
+# 5. Save as train.parquet in the root directory
 train_path = os.path.join(root, "train.parquet")
 df.to_parquet(train_path)
 
 print(f"Done! Created merged file at: {train_path}")
-print(f"Total images: {len(df)} | Total unique locations: {len(unique_locations)}")
+print(f"Total images processed: {len(df)}")
+print(f"Total unique locations (classes): {len(unique_locations)}")
