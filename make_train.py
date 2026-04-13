@@ -15,7 +15,14 @@ if not csv_files:
 print(f"Combining {len(csv_files)} city dataframes...")
 
 # 2. Load and concatenate all dataframes
-all_dfs = [pd.read_csv(f) for f in csv_files]
+all_dfs = []
+for f in csv_files:
+    temp_df = pd.read_csv(f)
+    # Get the city name from the filename (e.g., Bangkok from Bangkok.csv)
+    city_name = os.path.basename(f).replace('.csv', '')
+    # Build the path using the actual folder name on disk
+    temp_df['image_path'] = "Images/" + city_name + "/" + temp_df['panoid'].astype(str) + ".jpg"
+    all_dfs.append(temp_df)
 df = pd.concat(all_dfs, ignore_index=True)
 
 # Construct the image_path column
