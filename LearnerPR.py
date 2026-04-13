@@ -299,31 +299,31 @@ def train(args):
 
         for images, labels in pbar:
             images = images.to(device)
-        labels = labels.to(device)
+            labels = labels.to(device)
 
-        # 1. New: Get Teacher embeddings (Frozen, no gradients needed)
-        with torch.no_grad():
-            teacher_embeddings = teacher(images)
-            teacher_embeddings = F.normalize(teacher_embeddings, p=2, dim=1)
+            # 1. New: Get Teacher embeddings (Frozen, no gradients needed)
+            with torch.no_grad():
+                teacher_embeddings = teacher(images)
+                teacher_embeddings = F.normalize(teacher_embeddings, p=2, dim=1)
 
-        #2. Existing: Get Student embeddings
-        embeddings = model(images)
+            #2. Existing: Get Student embeddings
+            embeddings = model(images)
 
-        # 3. New: Generate normalized version for RKD loss computation
-        embeddings_norm = F.normalize(embeddings, p=2, dim=1)
+            # 3. New: Generate normalized version for RKD loss computation
+            embeddings_norm = F.normalize(embeddings, p=2, dim=1)
 
-        # 4. Existing: Standard cross-entropy / contrastive loss
-        base_loss = criterion(embeddings, labels)
+            # 4. Existing: Standard cross-entropy / contrastive loss
+            base_loss = criterion(embeddings, labels)
 
-        # 5. New: Distillation Loss calculation
-        # Only calculate if a distillation flag is active (if you set one up)
-        if args.use_distill:
-            rkd_loss = rkd_criterion(embeddings_norm, teacher_embeddings)
-            # alpha balances the two losses; 10.0 is a typical starting value
-            alpha = 10.0
-            loss = base_loss + (alpha * rkd_loss)
-        else:
-            loss = base_loss
+            # 5. New: Distillation Loss calculation
+            # Only calculate if a distillation flag is active (if you set one up)
+            if args.use_distill:
+                rkd_loss = rkd_criterion(embeddings_norm, teacher_embeddings)
+              # alpha balances the two losses; 10.0 is a typical starting value
+                alpha = 10.0
+                loss = base_loss + (alpha * rkd_loss)
+            else:
+                loss = base_loss
 
             optimizer.zero_grad()
             loss.backward()
@@ -472,6 +472,7 @@ def main():
     parser.add_argument("--warmup_epochs", type=int, default=2, help="Warmup epochs")
     parser.add_argument("--margin", type=float, default=0.3, help="Triplet loss margin")
     parser.add_argument("--save_every", type=int, default=5, help="Save checkpoint every N epochs")
+    parser.add_argument("--use_distill", action="store_true", help="Use RKD distillation")
 
     # Prediction args
     parser.add_argument("--checkpoint", type=str, default="./checkpoints/best_model.pth", help="Checkpoint path for prediction")
