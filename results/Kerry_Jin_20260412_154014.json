@@ -1,0 +1,22 @@
+{
+  "student_id": "Kerry_Jin",
+  "timestamp": "20260412_154014",
+  "prediction_path": "./results/gem_dataset_a.csv",
+  "datasets": {
+    "dataset_a": {
+      "performance": {
+        "R@1": 60.62602965403624,
+        "R@5": 81.21911037891269,
+        "R@10": 86.82042833607908,
+        "R@20": 93.08072487644151,
+        "mAP@20": 69.71327625605504
+      },
+      "submission_info": {
+        "num_database": 607,
+        "num_queries": 607,
+        "num_predicted_queries": 607,
+        "num_missing_queries": 0
+      }
+    }
+  }
+}
