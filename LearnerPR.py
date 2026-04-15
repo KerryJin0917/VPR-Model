@@ -401,23 +401,27 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 
 def load_db_queries(root, dataset_name):
-    # 1. Try to find your consolidated parquet first
+    """
+    Smarter loader that handles consolidated parquets and city-specific CSVs.
+    """
+    # 1. Path definitions
     parquet_path = os.path.join(root, "train.parquet")
     csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
 
-    if os.path.exists(parquet_path) and dataset_name == "gsv_cities":
-        print(f"Loading consolidated data from {parquet_path}")
+    # 2. Load the metadata file
+    if dataset_name == "gsv_cities" and os.path.exists(parquet_path):
+        print(f"Loading consolidated parquet: {parquet_path}")
         df = pd.read_parquet(parquet_path)
     elif os.path.exists(csv_path):
-        print(f"Loading city-specific data from {csv_path}")
+        print(f"Loading city CSV: {csv_path}")
         df = pd.read_csv(csv_path)
     else:
         raise FileNotFoundError(f"Could not find {parquet_path} or {csv_path}")
 
-    # 2. Fix the 'role' issue
-    # If 'role' is missing (common in training files), we split it manually 50/50
+    # 3. Handle the 'role' column (Required for Evaluation)
+    # If using train.parquet, it likely doesn't have 'role', so we split it manually
     if "role" not in df.columns:
-        print("Warning: 'role' column missing. Splitting dataset 50/50 into database/queries.")
+        print("Role column missing in parquet. Splitting 50/50 for Database/Queries.")
         mid = len(df) // 2
         db_df = df.iloc[:mid]
         q_df = df.iloc[mid:]
@@ -425,7 +429,8 @@ def load_db_queries(root, dataset_name):
         db_df = df[df["role"] == "database"]
         q_df = df[df["role"] == "queries"]
 
-    # 3. Handle image paths (ensures it looks in the 'Images' subfolder)
+    # 4. Fix the Pathing (The 'Images/Images' fix)
+    # Images are actually in: /work/users/j/i/jinkerry/gsv-cities/Images/city/image.jpg
     db_paths = [os.path.join("Images", p) for p in db_df["image_path"].tolist()]
     query_paths = [os.path.join("Images", p) for p in q_df["image_path"].tolist()]
 
