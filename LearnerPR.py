@@ -402,32 +402,33 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 def load_db_queries(root, dataset_name):
     """
-    Final robust loader for GSV-Cities.
-    Handles zero-padding, mystery columns (northdeg), and 50/50 fallback.
+    Final GSV-Cities loader using official filename formatting:
+    city_placeID_year_month_bearing_latitude_longitude_panoid.JPG
     """
     csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
     print(f"Loading evaluation metadata from: {csv_path}")
     df = pd.read_csv(csv_path)
 
-    # 1. Determine splitting logic
+    # 1. Splitting logic (50/50 fallback if role/split is missing)
     if "role" in df.columns:
         db_df, q_df = df[df["role"] == "database"], df[df["role"] == "queries"]
     elif "split" in df.columns:
         db_df, q_df = df[df["split"] == "database"], df[df["split"] == "queries"]
     else:
-        print(f"Warning: No split column. Performing manual 50/50 split.")
         mid = len(df) // 2
         db_df, q_df = df.iloc[:mid], df.iloc[mid:]
 
-    # 2. Robust Path Builder helper function
+    # 2. Path Builder helper function
     def get_paths(dataframe):
         constructed_paths = []
         for _, row in dataframe.iterrows():
             if "image_path" in row and pd.notna(row["image_path"]):
                 constructed_paths.append(os.path.join("Images", row["image_path"]))
             else:
-                # REPLICATING THE DISK FILENAME:
-                # London_0005419_2018_01_128_51.512..._panoid.jpg
+                # MATCHING OFFICIAL FORMAT: city_placeID_year_month_bearing_lat_lon_panoid.JPG
+                # place_id is zero-padded to 7 digits
+                # month is zero-padded to 2 digits
+                # bearing corresponds to the 'northdeg' column
                 filename = (
                     f"{dataset_name}_{int(row['place_id']):07d}_{row['year']}_"
                     f"{row['month']:02d}_{int(row['northdeg'])}_{row['lat']}_"
@@ -436,11 +437,11 @@ def load_db_queries(root, dataset_name):
                 constructed_paths.append(os.path.join("Images", dataset_name, filename))
         return constructed_paths
 
-    # 3. Generate the lists
+    # 3. Generate and return the lists
     db_paths = get_paths(db_df)
     query_paths = get_paths(q_df)
 
-    # 4. CRITICAL: Ensure we actually return the lists so 'predict' can unpack them
+    # 4. Success check to avoid NoneType unpacking errors
     print(f"Successfully loaded {len(db_paths)} database and {len(query_paths)} query images.")
     return db_paths, query_paths
 
