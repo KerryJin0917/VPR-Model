@@ -20,7 +20,7 @@ import os
 # This ensures Python can see the 'dataloaders' folder in your current directory
 sys.path.append(os.getcwd())
 
-from dataloaders.val.GSVCitiesDataset import GSVCitiesDataset
+from dataloaders.GSVCitiesDataloader import GSVCitiesDataset
 
 # ============================================================================
 # Dataset
