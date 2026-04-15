@@ -408,27 +408,24 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 def load_db_queries(root, dataset_name):
     """
-    Uses the official GSVCitiesDataset class to bridge the
-    gap between CSV metadata and physical image files.
+    Final corrected wrapper for the official GSVCitiesDataset class.
     """
-    # 1. Initialize the dataset (this automatically reads the CSV)
-    # Note: 'root' should be /work/users/j/i/jinkerry/gsv-cities
+    # Initialize the official dataset
     val_ds = GSVCitiesDataset(
         cities=[dataset_name],
         root_dir=root,
-        transform=None # We just want the paths for now
+        transform=None
     )
 
-    # 2. Get the dataframe already processed by the official code
-    # This avoids the 'KeyError: role' because the class handles the split
-    df = val_ds.dataframe
-    db_df = df[df['role'] == 'database']
-    q_df = df[df['role'] == 'queries']
+    # 1. Access the internal dataframe (it is named .df)
+    # 2. Filter for database and queries using the 'role' column
+    db_df = val_ds.df[val_ds.df['role'] == 'database']
+    q_df = val_ds.df[val_ds.df['role'] == 'queries']
 
-    # 3. Build paths using the validated GSV-Cities format
     def build_list(dataframe):
         paths = []
         for _, row in dataframe.iterrows():
+            # Apply the official naming convention
             filename = (
                 f"{dataset_name}_{int(row['place_id']):07d}_{row['year']}_"
                 f"{int(row['month']):02d}_{int(row['northdeg'])}_"
@@ -440,7 +437,7 @@ def load_db_queries(root, dataset_name):
     db_paths = build_list(db_df)
     query_paths = build_list(q_df)
 
-    print(f"Successfully linked {len(db_paths)} database and {len(query_paths)} query images.")
+    print(f"Loaded {len(db_paths)} database and {len(query_paths)} queries via official GSVCities logic.")
     return db_paths, query_paths
 
 
