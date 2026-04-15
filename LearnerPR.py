@@ -401,17 +401,30 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 
 def load_db_queries(root, dataset_name):
-    """Load database/query paths based on dataset name."""
-    df = pd.read_parquet(os.path.join(root, "train.parquet"))
+    """
+    Load database/query paths for GSV-Cities.
+    Expects city-specific CSVs in a 'Dataframes' subfolder.
+    """
+    # 1. Build path to the specific city CSV (e.g., London.csv)
+    csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
 
-    if dataset_name == "dataset_a":
-        db_df = df[df["split"] == "database"].sort_values("image_path")
-        q_df = df[df["split"] == "queries"].sort_values("image_path")
-    else:
-        db_df = df[df["role"] == "database"]
-        q_df = df[df["role"] == "queries"]
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Could not find metadata at {csv_path}. "
+                                f"Ensure --dataset_name matches a city in the Dataframes folder.")
 
-    return db_df["image_path"].tolist(), q_df["image_path"].tolist()
+    # 2. Load the metadata
+    df = pd.read_csv(csv_path)
+
+    # 3. Split into database (reference) and queries (test images)
+    # GSV-Cities evaluation CSVs use the 'role' column
+    db_df = df[df["role"] == "database"]
+    q_df = df[df["role"] == "queries"]
+
+    # 4. Prepend 'Images' to paths because GSV-Cities stores .jpgs in root/Images/
+    db_paths = [os.path.join("Images", p) for p in db_df["image_path"].tolist()]
+    query_paths = [os.path.join("Images", p) for p in q_df["image_path"].tolist()]
+
+    return db_paths, query_paths
 
 
 def predict(args):
