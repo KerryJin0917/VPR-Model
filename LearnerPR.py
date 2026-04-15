@@ -402,48 +402,46 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 def load_db_queries(root, dataset_name):
     """
-    Final corrected loader: Constructs complex GSV-Cities filenames from metadata.
+    Final robust loader for GSV-Cities.
+    Handles zero-padding, mystery columns (northdeg), and 50/50 fallback.
     """
     csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
     print(f"Loading evaluation metadata from: {csv_path}")
     df = pd.read_csv(csv_path)
 
-    # 1. Split logic (50/50 fallback)
+    # 1. Determine splitting logic
     if "role" in df.columns:
         db_df, q_df = df[df["role"] == "database"], df[df["role"] == "queries"]
     elif "split" in df.columns:
         db_df, q_df = df[df["split"] == "database"], df[df["split"] == "queries"]
     else:
+        print(f"Warning: No split column. Performing manual 50/50 split.")
         mid = len(df) // 2
         db_df, q_df = df.iloc[:mid], df.iloc[mid:]
 
-    # 2. Path Building based on your 'ls' results
-def get_paths(dataframe):
-    paths = []
-    for _, row in dataframe.iterrows():
-        if "image_path" in row and pd.notna(row["image_path"]):
-            paths.append(os.path.join("Images", row["image_path"]))
-        else:
-            # MATCHING THE DISK: London_0005419_2018_01_128_51.512..._panoid.jpg
-            # Patterns identified from your grep:
-            # 1. place_id is zero-padded to 7 digits (:07d)
-            # 2. month is zero-padded to 2 digits (:02d)
-            # 3. There is a 'northdeg' column after the month (the '128' in your grep)
-            # 4. The panoid comes AFTER the coordinates
+    # 2. Robust Path Builder helper function
+    def get_paths(dataframe):
+        constructed_paths = []
+        for _, row in dataframe.iterrows():
+            if "image_path" in row and pd.notna(row["image_path"]):
+                constructed_paths.append(os.path.join("Images", row["image_path"]))
+            else:
+                # REPLICATING THE DISK FILENAME:
+                # London_0005419_2018_01_128_51.512..._panoid.jpg
+                filename = (
+                    f"{dataset_name}_{int(row['place_id']):07d}_{row['year']}_"
+                    f"{row['month']:02d}_{int(row['northdeg'])}_{row['lat']}_"
+                    f"{row['lon']}_{row['panoid']}.jpg"
+                )
+                constructed_paths.append(os.path.join("Images", dataset_name, filename))
+        return constructed_paths
 
-            filename = (f"{dataset_name}_{int(row['place_id']):07d}_{row['year']}_"
-                        f"{row['month']:02d}_{int(row['northdeg'])}_{row['lat']}_"
-                        f"{row['lon']}_{row['panoid']}.jpg")
-
-            paths.append(os.path.join("Images", dataset_name, filename))
-    return paths
-
+    # 3. Generate the lists
     db_paths = get_paths(db_df)
     query_paths = get_paths(q_df)
 
-    if db_paths:
-        print(f"Constructed path example: {db_paths[0]}")
-
+    # 4. CRITICAL: Ensure we actually return the lists so 'predict' can unpack them
+    print(f"Successfully loaded {len(db_paths)} database and {len(query_paths)} query images.")
     return db_paths, query_paths
 
 
