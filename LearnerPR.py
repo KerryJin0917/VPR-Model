@@ -401,32 +401,39 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 
 def load_db_queries(root, dataset_name):
+    """
+    Adjusted to match GSV-Cities benchmark logic:
+    1. Loads metadata via Pandas.
+    2. Constructs full paths based on the official naming convention.
+    3. Returns lists of paths (not DataFrames) to avoid indexing errors.
+    """
     csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
+    print(f"Loading evaluation metadata from: {csv_path}")
     df = pd.read_csv(csv_path)
 
-    # Handle the database/query split
-    if "role" in df.columns:
-        db_df, q_df = df[df["role"] == "database"], df[df["role"] == "queries"]
-    else:
-        mid = len(df) // 2
-        db_df, q_df = df.iloc[:mid], df.iloc[mid:]
+    # Use 'role' to split database and queries as per benchmark
+    db_df = df[df['role'] == 'database']
+    q_df = df[df['role'] == 'queries']
 
-    def get_paths(dataframe):
+    def build_path_list(dataframe):
+        # Construct the exact filename format from the CSV columns
+        # Format: city_placeID_year_month_bearing_lat_lon_panoid.jpg
         paths = []
         for _, row in dataframe.iterrows():
-            # Construct the filename using the metadata in the CSV
             filename = (
                 f"{dataset_name}_{int(row['place_id']):07d}_{row['year']}_"
                 f"{int(row['month']):02d}_{int(row['northdeg'])}_"
                 f"{row['lat']}_{row['lon']}_{row['panoid']}.jpg"
             )
-            # Add the relative path to the city folder
+            # The benchmark expects the path relative to the root/Images folder
             paths.append(os.path.join("Images", dataset_name, filename))
         return paths
 
-    db_paths = get_paths(db_df)
-    query_paths = get_paths(q_df)
+    # Convert DataFrames to simple lists of strings
+    db_paths = build_path_list(db_df)
+    query_paths = build_path_list(q_df)
 
+    print(f"Validated {len(db_paths)} database images and {len(query_paths)} query images.")
     return db_paths, query_paths
 
 
