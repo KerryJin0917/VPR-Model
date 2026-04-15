@@ -402,45 +402,29 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 def load_db_queries(root, dataset_name):
     """
-    Final GSV-Cities loader using official filename formatting:
-    city_placeID_year_month_bearing_latitude_longitude_panoid.JPG
+    Reads metadata from the CSV. Returns dataframes for
+    database and queries without building image paths.
     """
     csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
     print(f"Loading evaluation metadata from: {csv_path}")
+
+    # Read the numerical data from the CSV
     df = pd.read_csv(csv_path)
 
-    # 1. Splitting logic (50/50 fallback if role/split is missing)
+    # Splitting logic: Use 'role' or 'split' columns if they exist
     if "role" in df.columns:
         db_df, q_df = df[df["role"] == "database"], df[df["role"] == "queries"]
     elif "split" in df.columns:
         db_df, q_df = df[df["split"] == "database"], df[df["split"] == "queries"]
     else:
+        # Fallback: Manual 50/50 split if no role column is found
         mid = len(df) // 2
         db_df, q_df = df.iloc[:mid], df.iloc[mid:]
 
-    # 2. Path Builder helper function
-    def get_paths(dataframe):
-        constructed_paths = []
-        for _, row in dataframe.iterrows():
-            # Official format: city_placeID_year_month_bearing_latitude_longitude_panoid.JPG
-            # place_id must be 7 digits (:07d)
-            # month must be 2 digits (:02d)
-            # bearing corresponds to northdeg column
-            filename = (
-                f"{dataset_name}_{int(row['place_id']):07d}_{row['year']}_"
-                f"{int(row['month']):02d}_{int(row['northdeg'])}_"
-                f"{row['lat']}_{row['lon']}_{row['panoid']}.jpg"
-            )
-            constructed_paths.append(os.path.join("Images", dataset_name, filename))
-        return constructed_paths
+    print(f"Successfully loaded {len(db_df)} database and {len(q_df)} query entries.")
 
-    # 3. Generate and return the lists
-    db_paths = get_paths(db_df)
-    query_paths = get_paths(q_df)
-
-    # 4. Success check to avoid NoneType unpacking errors
-    print(f"Successfully loaded {len(db_paths)} database and {len(query_paths)} query images.")
-    return db_paths, query_paths
+    # Return the dataframes directly to use their numeric information
+    return db_df, q_df
 
 
 def predict(args):
