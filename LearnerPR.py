@@ -126,49 +126,49 @@ class RKDLoss(nn.Module):
         return loss * self.w_dist
 
 class ContrastiveLoss(nn.Module):
-    """NT-Xent (InfoNCE) contrastive loss for place recognition."""
-
-    def __init__(self, embedding_dim, num_classes, temperature=0.07):
+    def __init__(self, embedding_dim, num_classes, temperature=0.05):
         super().__init__()
         self.temperature = temperature
         self.classifier = nn.Linear(embedding_dim, num_classes)
 
     def forward(self, embeddings, labels):
-        # Cross-entropy with temperature-scaled logits
-        logits = self.classifier(F.normalize(embeddings, p=2, dim=1)) / self.temperature
+        embeddings = F.normalize(embeddings, p=2, dim=1)
+        logits = self.classifier(embeddings) / self.temperature
         return F.cross_entropy(logits, labels)
 
 
-class TripletLoss(nn.Module):
-    """Online hard triplet mining loss."""
-
-    def __init__(self, margin=0.3):
+class BatchHardTripletLoss(nn.Module):
+    def __init__(self, margin=0.2):
         super().__init__()
         self.margin = margin
 
     def forward(self, embeddings, labels):
         embeddings = F.normalize(embeddings, p=2, dim=1)
-        dist_mat = 1 - torch.mm(embeddings, embeddings.t())
 
-        labels = labels.unsqueeze(0)
-        same_identity = labels == labels.t()
+        dist_mat = 1 - torch.matmul(embeddings, embeddings.t())  # cosine distance
 
-        loss = torch.tensor(0.0, device=embeddings.device)
-        count = 0
+        labels = labels.unsqueeze(1)
+        same = labels == labels.t()
+
+        loss = 0.0
+        valid = 0
 
         for i in range(embeddings.size(0)):
-            pos_mask = same_identity[i].clone()
+            pos_mask = same[i].clone()
+            neg_mask = ~same[i]
+
             pos_mask[i] = False
-            neg_mask = ~same_identity[i]
 
-            if pos_mask.any() and neg_mask.any():
-                hardest_pos = dist_mat[i][pos_mask].max()
-                hardest_neg = dist_mat[i][neg_mask].min()
-                loss += F.relu(hardest_pos - hardest_neg + self.margin)
-                count += 1
+            if pos_mask.sum() == 0 or neg_mask.sum() == 0:
+                continue
 
-        return loss / max(count, 1)
+            hardest_pos = dist_mat[i][pos_mask].max()
+            hardest_neg = dist_mat[i][neg_mask].min()
 
+            loss += F.relu(hardest_pos - hardest_neg + self.margin)
+            valid += 1
+
+        return loss / max(valid, 1)
 
 # ============================================================================
 # Model
@@ -251,7 +251,7 @@ def train(args):
     if args.loss == "contrastive":
         criterion = ContrastiveLoss(args.embedding_dim, dataset.num_classes).to(device)
     elif args.loss == "triplet":
-        criterion = TripletLoss(margin=args.margin)
+        criterion = BatchHardTripletLoss(margin=args.margin)
     else:
         raise ValueError(f"Unknown loss: {args.loss}")
 
@@ -265,12 +265,11 @@ def train(args):
     head_params = list(model.head.parameters())
 
     # Only grab loss params if the loss actually has them (like ContrastiveLoss)
-    loss_params = list(criterion.parameters()) if hasattr(criterion, 'parameters') else []
+    loss_params = []
 
     optimizer = torch.optim.AdamW([
-       {"params": backbone_params, "lr": args.lr * 0.01}, # Low LR for DINOv2
-      {"params": head_params, "lr": args.lr},           # Standard LR for Head
-      {"params": loss_params, "lr": args.lr},           # Standard LR for Loss (if exists)
+        {"params": backbone_params, "lr": args.lr * 0.01},
+        {"params": head_params, "lr": args.lr},
     ], weight_decay=args.weight_decay)
 
     # LR Scheduler: cosine annealing with warmup
@@ -468,6 +467,21 @@ def compute_recall_at_k(rankings, db_labels, query_labels, ks=[1,5,10,20]):
 
     return recalls
 
+def rerank_topk(query_emb, db_emb, rankings, top_m=50):
+    reranked = []
+
+    for i in range(len(query_emb)):
+        topk_idx = rankings[i][:top_m]
+
+        q = query_emb[i]
+        candidates = db_emb[topk_idx]
+
+        sims = np.dot(candidates, q)
+        new_order = np.argsort(-sims)
+
+        reranked.append(topk_idx[new_order])
+
+    return np.array(reranked)
 
 def predict(args):
     """Generate prediction CSV from a trained checkpoint.
@@ -498,7 +512,10 @@ def predict(args):
     # Compute rankings
     print("Computing rankings...")
     similarity = np.matmul(query_emb, db_emb.T)
-    rankings = np.argsort(-similarity, axis=1)[:, :args.top_k]
+    full_rankings = np.argsort(-similarity, axis=1)
+
+    rankings = rerank_topk(query_emb, db_emb, full_rankings, top_m=50)
+    rankings = rankings[:, :args.top_k]
     # Compute Recall@K
     recalls = compute_recall_at_k(rankings, db_labels, query_labels)
 
@@ -544,7 +561,7 @@ def main():
 
     # Shared args
     parser.add_argument("--embedding_dim", type=int, default=512, help="Embedding dimension")
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
     parser.add_argument("--image_size", type=int, default=224, help="Image size")
     parser.add_argument("--num_workers", type=int, default=4, help="Number of data loading workers")
     parser.add_argument("--device", type=str, default="cuda", help="Device")
