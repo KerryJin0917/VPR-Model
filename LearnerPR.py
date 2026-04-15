@@ -402,42 +402,39 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 def load_db_queries(root, dataset_name):
     """
-    Final refined loader for GSV-Cities city CSVs.
+    Final corrected loader: Constructs complex GSV-Cities filenames from metadata.
     """
     csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
     print(f"Loading evaluation metadata from: {csv_path}")
     df = pd.read_csv(csv_path)
 
-    # 1. Split logic (Fall back to 50/50 if split/role is missing)
+    # 1. Split logic (50/50 fallback)
     if "role" in df.columns:
         db_df, q_df = df[df["role"] == "database"], df[df["role"] == "queries"]
     elif "split" in df.columns:
         db_df, q_df = df[df["split"] == "database"], df[df["split"] == "queries"]
     else:
-        print(f"Manual 50/50 split for {dataset_name}")
         mid = len(df) // 2
         db_df, q_df = df.iloc[:mid], df.iloc[mid:]
 
-    # 2. Refined Path Building
+    # 2. Path Building based on your 'ls' results
     def get_paths(dataframe):
         paths = []
         for _, row in dataframe.iterrows():
             if "image_path" in row and pd.notna(row["image_path"]):
-                # Case for train.parquet
                 paths.append(os.path.join("Images", row["image_path"]))
             else:
-                # Case for London.csv: Images / London / panoid.jpg
-                # Note: We use dataset_name (London) as the subfolder
-                img_path = os.path.join("Images", dataset_name, f"{row['panoid']}.jpg")
-                paths.append(img_path)
+                # Construct filename: city_panoid_year_month_lat_lon.jpg
+                # We use string formatting to match the pattern seen in your terminal
+                filename = f"{dataset_name}_{row['panoid']}_{row['year']}_{row['month']:02d}_{row['lat']}_{row['lon']}.jpg"
+                paths.append(os.path.join("Images", dataset_name, filename))
         return paths
 
     db_paths = get_paths(db_df)
     query_paths = get_paths(q_df)
 
-    # Debug check: print the first path to verify structure
     if db_paths:
-        print(f"First image path check: {os.path.join(root, db_paths[0])}")
+        print(f"Constructed path example: {db_paths[0]}")
 
     return db_paths, query_paths
 
