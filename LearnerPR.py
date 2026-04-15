@@ -407,37 +407,28 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 
 def load_db_queries(root, dataset_name):
-    """
-    Final corrected wrapper for the official GSVCitiesDataset class.
-    """
-    # Initialize the official dataset
+    # 1. Initialize the official dataset
     val_ds = GSVCitiesDataset(
         cities=[dataset_name],
         root_dir=root,
         transform=None
     )
 
-    # 1. Access the internal dataframe (it is named .df)
-    # 2. Filter for database and queries using the 'role' column
+    # 2. The class automatically splits references and queries internally.
+    # We can use its internal 'test_indices' or 'df' role column.
     db_df = val_ds.df[val_ds.df['role'] == 'database']
     q_df = val_ds.df[val_ds.df['role'] == 'queries']
 
-    def build_list(dataframe):
-        paths = []
-        for _, row in dataframe.iterrows():
-            # Apply the official naming convention
-            filename = (
-                f"{dataset_name}_{int(row['place_id']):07d}_{row['year']}_"
-                f"{int(row['month']):02d}_{int(row['northdeg'])}_"
-                f"{row['lat']}_{row['lon']}_{row['panoid']}.jpg"
-            )
-            paths.append(os.path.join("Images", dataset_name, filename))
-        return paths
+    # 3. Instead of building strings, get the full paths from the object's logic
+    # The GSVCitiesDataset usually stores the full filenames in val_ds.filenames
+    def get_paths_from_object(indices):
+        return [os.path.join(root, "Images", dataset_name, val_ds.filenames[i]) for i in indices]
 
-    db_paths = build_list(db_df)
-    query_paths = build_list(q_df)
+    # Map the dataframe indices back to the filename list
+    db_paths = [os.path.join(root, "Images", dataset_name, val_ds.filenames[i]) for i in db_df.index]
+    query_paths = [os.path.join(root, "Images", dataset_name, val_ds.filenames[i]) for i in q_df.index]
 
-    print(f"Loaded {len(db_paths)} database and {len(query_paths)} queries via official GSVCities logic.")
+    print(f"Successfully loaded {len(db_paths)} database and {len(query_paths)} query paths.")
     return db_paths, query_paths
 
 
