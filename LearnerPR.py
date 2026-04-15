@@ -406,26 +406,33 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 # ============================================================================
 
 def load_db_queries(root, dataset_name):
-    """
-    Manually loads database and query paths from the GSV-Cities CSV files.
-    Assumes your data is at: {root}/Dataframes/{dataset_name}.csv
-    """
     csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
-    if not os.path.exists(csv_path):
-        # Try Parquet if CSV isn't there
-        csv_path = csv_path.replace(".csv", ".parquet")
-        df = pd.read_parquet(csv_path)
-    else:
-        df = pd.read_csv(csv_path)
+    df = pd.read_csv(csv_path)
 
-    # Filter by role
-    db_df = df[df['role'] == 'database']
-    q_df = df[df['role'] == 'queries']
+    # 🔑 Build image paths from panoid
+    df["image_path"] = df["panoid"].apply(
+        lambda x: os.path.join(root, "Images", dataset_name, f"{x}.jpg")
+    )
 
-    # Build paths based on the GSV-Cities folder structure
-    # images are usually in {root}/Images/{dataset_name}/{filename}
-    db_paths = [os.path.join(root, "Images", dataset_name, f) for f in db_df['image_path'].values]
-    query_paths = [os.path.join(root, "Images", dataset_name, f) for f in q_df['image_path'].values]
+    # 🔑 Split by place_id (THIS IS THE KEY IDEA)
+    db_list = []
+    query_list = []
+
+    for place_id, group in df.groupby("place_id"):
+        if len(group) < 2:
+            continue  # need at least 2 images
+
+        group = group.sample(frac=1, random_state=42)  # shuffle
+
+        # 1 query, rest database
+        query_list.append(group.iloc[0])
+        db_list.extend(group.iloc[1:].to_dict("records"))
+
+    db_df = pd.DataFrame(db_list)
+    query_df = pd.DataFrame(query_list)
+
+    db_paths = db_df["image_path"].tolist()
+    query_paths = query_df["image_path"].tolist()
 
     print(f"--- Evaluation Mode ---")
     print(f"Dataset: {dataset_name}")
