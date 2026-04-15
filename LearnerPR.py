@@ -414,23 +414,17 @@ def load_db_queries(root, dataset_name):
 
     image_dir = os.path.join(root, "Images", dataset_name)
 
-    # 🔑 Step 1: build panoid → full path mapping
+    # panoid → filepath
     panoid_to_path = {}
     for fname in os.listdir(image_dir):
-        if not fname.endswith(".jpg"):
-            continue
-        panoid = fname.split("_")[-1].replace(".jpg", "")
-        panoid_to_path[panoid] = os.path.join(image_dir, fname)
+        if fname.endswith(".jpg"):
+            panoid = fname.split("_")[-1].replace(".jpg", "")
+            panoid_to_path[panoid] = os.path.join(image_dir, fname)
 
-    print(f"Mapped {len(panoid_to_path)} images")
-
-    # 🔑 Step 2: attach paths to dataframe
     df["image_path"] = df["panoid"].map(panoid_to_path)
-
-    # drop rows where image is missing
     df = df.dropna(subset=["image_path"])
 
-    # 🔑 Step 3: split by place_id
+    # split by place_id
     db_list = []
     query_list = []
 
@@ -439,7 +433,6 @@ def load_db_queries(root, dataset_name):
             continue
 
         group = group.sample(frac=1, random_state=42)
-
         query_list.append(group.iloc[0])
         db_list.extend(group.iloc[1:].to_dict("records"))
 
@@ -449,12 +442,31 @@ def load_db_queries(root, dataset_name):
     db_paths = db_df["image_path"].tolist()
     query_paths = query_df["image_path"].tolist()
 
+    db_labels = db_df["place_id"].values
+    query_labels = query_df["place_id"].values
+
     print(f"--- Evaluation Mode ---")
     print(f"Dataset: {dataset_name}")
     print(f"Database images: {len(db_paths)}")
     print(f"Query images: {len(query_paths)}")
 
-    return db_paths, query_paths
+    return db_paths, query_paths, db_labels, query_labels
+
+def compute_recall_at_k(rankings, db_labels, query_labels, ks=[1,5,10,20]):
+    recalls = {k: 0 for k in ks}
+
+    for i, q_label in enumerate(query_labels):
+        retrieved = rankings[i]
+
+        for k in ks:
+            top_k = retrieved[:k]
+            if any(db_labels[j] == q_label for j in top_k):
+                recalls[k] += 1
+
+    for k in ks:
+        recalls[k] /= len(query_labels)
+
+    return recalls
 
 
 def predict(args):
@@ -473,7 +485,7 @@ def predict(args):
     print(f"Loaded checkpoint: {args.checkpoint} (epoch {checkpoint.get('epoch', '?')})")
 
     # Load database/query paths
-    db_paths, query_paths = load_db_queries(args.dataset_root, args.dataset_name)
+    db_paths, query_paths, db_labels, query_labels = load_db_queries(args.dataset_root, args.dataset_name)
     print(f"Database: {len(db_paths)}, Queries: {len(query_paths)}")
 
     # Encode
@@ -487,6 +499,12 @@ def predict(args):
     print("Computing rankings...")
     similarity = np.matmul(query_emb, db_emb.T)
     rankings = np.argsort(-similarity, axis=1)[:, :args.top_k]
+    # Compute Recall@K
+    recalls = compute_recall_at_k(rankings, db_labels, query_labels)
+
+    print("\n--- Recall@K ---")
+    for k, v in recalls.items():
+        print(f"Recall@{k}: {v:.4f}")
 
     # Save predictions
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
