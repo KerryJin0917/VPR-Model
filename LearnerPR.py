@@ -422,24 +422,16 @@ def load_db_queries(root, dataset_name):
     def get_paths(dataframe):
         constructed_paths = []
         for _, row in dataframe.iterrows():
-            if "image_path" in row and pd.notna(row["image_path"]):
-                constructed_paths.append(os.path.join("Images", row["image_path"]))
-            else:
-                # OFFICIAL FORMAT: city_placeID_year_month_bearing_lat_lon_panoid.jpg
-                # Ensure each part is a clean string to avoid double underscores
-                parts = [
-                    str(dataset_name),
-                    f"{int(row['place_id']):07d}",
-                    str(row['year']),
-                    f"{int(row['month']):02d}",
-                    str(int(row['northdeg'])),
-                    str(row['lat']),
-                    str(row['lon']),
-                    str(row['panoid'])
-                ]
-                # Join with a single underscore and add .jpg
-                filename = "_".join(parts) + ".jpg"
-                constructed_paths.append(os.path.join("Images", dataset_name, filename))
+            # Official format: city_placeID_year_month_bearing_latitude_longitude_panoid.JPG
+            # place_id must be 7 digits (:07d)
+            # month must be 2 digits (:02d)
+            # bearing corresponds to northdeg column
+            filename = (
+                f"{dataset_name}_{int(row['place_id']):07d}_{row['year']}_"
+                f"{int(row['month']):02d}_{int(row['northdeg'])}_"
+                f"{row['lat']}_{row['lon']}_{row['panoid']}.jpg"
+            )
+            constructed_paths.append(os.path.join("Images", dataset_name, filename))
         return constructed_paths
 
     # 3. Generate and return the lists
