@@ -424,9 +424,9 @@ def load_db_queries(root, dataset_name):
             if "image_path" in row and pd.notna(row["image_path"]):
                 paths.append(os.path.join("Images", row["image_path"]))
             else:
-                # Construct filename: city_panoid_year_month_lat_lon.jpg
-                # We use string formatting to match the pattern seen in your terminal
-                filename = f"{dataset_name}_{row['panoid']}_{row['year']}_{row['month']:02d}_{row['lat']}_{row['lon']}.jpg"
+                # Constructing based on: city_placeid_panoid_year_month_lat_lon.jpg
+                # Note: your ls shows 'London_0000000' -> place_id is the 0000000 part.
+                filename = f"{dataset_name}_{row['place_id']}_{row['panoid']}_{row['year']}_{row['month']:02d}_{row['lat']}_{row['lon']}.jpg"
                 paths.append(os.path.join("Images", dataset_name, filename))
         return paths
 
