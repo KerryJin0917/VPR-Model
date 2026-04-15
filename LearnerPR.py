@@ -401,24 +401,23 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 
 def load_db_queries(root, dataset_name):
-    """
-    Load database/query paths specifically for a GSV-Cities city CSV.
-    """
-    # 1. Point specifically to the city CSV in the Dataframes subfolder
+    # 1. Build path to the city CSV
     csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
-
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(f"City file not found: {csv_path}. Check if {dataset_name}.csv exists.")
-
     print(f"Loading evaluation metadata from: {csv_path}")
     df = pd.read_csv(csv_path)
 
-    # 2. Split using the 'role' column (database vs queries)
-    db_df = df[df["role"] == "database"]
-    q_df = df[df["role"] == "queries"]
+    # 2. Determine which column to use for splitting (role or split)
+    split_col = "role" if "role" in df.columns else "split"
 
-    # 3. Fix the pathing: CSV paths already include the city name (e.g., 'London/img.jpg')
-    # So we only prepend the main 'Images' directory once.
+    if split_col not in df.columns:
+        raise KeyError(f"Could not find a 'role' or 'split' column in {dataset_name}.csv. "
+                       f"Available columns: {list(df.columns)}")
+
+    # 3. Use the correct column to separate Database and Queries
+    db_df = df[df[split_col] == "database"]
+    q_df = df[df[split_col] == "queries"]
+
+    # 4. Prepend 'Images' to paths
     db_paths = [os.path.join("Images", p) for p in db_df["image_path"].tolist()]
     query_paths = [os.path.join("Images", p) for p in q_df["image_path"].tolist()]
 
