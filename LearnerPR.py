@@ -402,35 +402,23 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 def load_db_queries(root, dataset_name):
     """
-    Smarter loader that handles consolidated parquets and city-specific CSVs.
+    Load database/query paths specifically for a GSV-Cities city CSV.
     """
-    # 1. Path definitions
-    parquet_path = os.path.join(root, "train.parquet")
+    # 1. Point specifically to the city CSV in the Dataframes subfolder
     csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
 
-    # 2. Load the metadata file
-    if dataset_name == "gsv_cities" and os.path.exists(parquet_path):
-        print(f"Loading consolidated parquet: {parquet_path}")
-        df = pd.read_parquet(parquet_path)
-    elif os.path.exists(csv_path):
-        print(f"Loading city CSV: {csv_path}")
-        df = pd.read_csv(csv_path)
-    else:
-        raise FileNotFoundError(f"Could not find {parquet_path} or {csv_path}")
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"City file not found: {csv_path}. Check if {dataset_name}.csv exists.")
 
-    # 3. Handle the 'role' column (Required for Evaluation)
-    # If using train.parquet, it likely doesn't have 'role', so we split it manually
-    if "role" not in df.columns:
-        print("Role column missing in parquet. Splitting 50/50 for Database/Queries.")
-        mid = len(df) // 2
-        db_df = df.iloc[:mid]
-        q_df = df.iloc[mid:]
-    else:
-        db_df = df[df["role"] == "database"]
-        q_df = df[df["role"] == "queries"]
+    print(f"Loading evaluation metadata from: {csv_path}")
+    df = pd.read_csv(csv_path)
 
-    # 4. Fix the Pathing (The 'Images/Images' fix)
-    # Images are actually in: /work/users/j/i/jinkerry/gsv-cities/Images/city/image.jpg
+    # 2. Split using the 'role' column (database vs queries)
+    db_df = df[df["role"] == "database"]
+    q_df = df[df["role"] == "queries"]
+
+    # 3. Fix the pathing: CSV paths already include the city name (e.g., 'London/img.jpg')
+    # So we only prepend the main 'Images' directory once.
     db_paths = [os.path.join("Images", p) for p in db_df["image_path"].tolist()]
     query_paths = [os.path.join("Images", p) for p in q_df["image_path"].tolist()]
 
