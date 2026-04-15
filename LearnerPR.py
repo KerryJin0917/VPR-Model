@@ -418,17 +418,25 @@ def load_db_queries(root, dataset_name):
         db_df, q_df = df.iloc[:mid], df.iloc[mid:]
 
     # 2. Path Building based on your 'ls' results
-    def get_paths(dataframe):
-        paths = []
-        for _, row in dataframe.iterrows():
-            if "image_path" in row and pd.notna(row["image_path"]):
-                paths.append(os.path.join("Images", row["image_path"]))
-            else:
-                # Constructing based on: city_placeid_panoid_year_month_lat_lon.jpg
-                # Note: your ls shows 'London_0000000' -> place_id is the 0000000 part.
-                filename = f"{dataset_name}_{row['place_id']}_{row['panoid']}_{row['year']}_{row['month']:02d}_{row['lat']}_{row['lon']}.jpg"
-                paths.append(os.path.join("Images", dataset_name, filename))
-        return paths
+def get_paths(dataframe):
+    paths = []
+    for _, row in dataframe.iterrows():
+        if "image_path" in row and pd.notna(row["image_path"]):
+            paths.append(os.path.join("Images", row["image_path"]))
+        else:
+            # MATCHING THE DISK: London_0005419_2018_01_128_51.512..._panoid.jpg
+            # Patterns identified from your grep:
+            # 1. place_id is zero-padded to 7 digits (:07d)
+            # 2. month is zero-padded to 2 digits (:02d)
+            # 3. There is a 'northdeg' column after the month (the '128' in your grep)
+            # 4. The panoid comes AFTER the coordinates
+
+            filename = (f"{dataset_name}_{int(row['place_id']):07d}_{row['year']}_"
+                        f"{row['month']:02d}_{int(row['northdeg'])}_{row['lat']}_"
+                        f"{row['lon']}_{row['panoid']}.jpg")
+
+            paths.append(os.path.join("Images", dataset_name, filename))
+    return paths
 
     db_paths = get_paths(db_df)
     query_paths = get_paths(q_df)
