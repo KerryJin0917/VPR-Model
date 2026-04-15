@@ -14,7 +14,13 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import models, transforms
 from PIL import Image
 from tqdm import tqdm
+import sys
+import os
 
+# This ensures Python can see the 'dataloaders' folder in your current directory
+sys.path.append(os.getcwd())
+
+from dataloaders.val.GSVCitiesDataset import GSVCitiesDataset
 
 # ============================================================================
 # Dataset
@@ -402,22 +408,25 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 def load_db_queries(root, dataset_name):
     """
-    Adjusted to match GSV-Cities benchmark logic:
-    1. Loads metadata via Pandas.
-    2. Constructs full paths based on the official naming convention.
-    3. Returns lists of paths (not DataFrames) to avoid indexing errors.
+    Uses the official GSVCitiesDataset class to bridge the
+    gap between CSV metadata and physical image files.
     """
-    csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
-    print(f"Loading evaluation metadata from: {csv_path}")
-    df = pd.read_csv(csv_path)
+    # 1. Initialize the dataset (this automatically reads the CSV)
+    # Note: 'root' should be /work/users/j/i/jinkerry/gsv-cities
+    val_ds = GSVCitiesDataset(
+        cities=[dataset_name],
+        root_dir=root,
+        transform=None # We just want the paths for now
+    )
 
-    # Use 'role' to split database and queries as per benchmark
+    # 2. Get the dataframe already processed by the official code
+    # This avoids the 'KeyError: role' because the class handles the split
+    df = val_ds.dataframe
     db_df = df[df['role'] == 'database']
     q_df = df[df['role'] == 'queries']
 
-    def build_path_list(dataframe):
-        # Construct the exact filename format from the CSV columns
-        # Format: city_placeID_year_month_bearing_lat_lon_panoid.jpg
+    # 3. Build paths using the validated GSV-Cities format
+    def build_list(dataframe):
         paths = []
         for _, row in dataframe.iterrows():
             filename = (
@@ -425,15 +434,13 @@ def load_db_queries(root, dataset_name):
                 f"{int(row['month']):02d}_{int(row['northdeg'])}_"
                 f"{row['lat']}_{row['lon']}_{row['panoid']}.jpg"
             )
-            # The benchmark expects the path relative to the root/Images folder
             paths.append(os.path.join("Images", dataset_name, filename))
         return paths
 
-    # Convert DataFrames to simple lists of strings
-    db_paths = build_path_list(db_df)
-    query_paths = build_path_list(q_df)
+    db_paths = build_list(db_df)
+    query_paths = build_list(q_df)
 
-    print(f"Validated {len(db_paths)} database images and {len(query_paths)} query images.")
+    print(f"Successfully linked {len(db_paths)} database and {len(query_paths)} query images.")
     return db_paths, query_paths
 
 
