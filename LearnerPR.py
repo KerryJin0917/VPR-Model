@@ -477,7 +477,7 @@ def main():
     # Prediction args
     parser.add_argument("--checkpoint", type=str, default="./checkpoints/best_model.pth", help="Checkpoint path for prediction")
     parser.add_argument("--dataset_root", type=str, help="Dataset root for prediction")
-    parser.add_argument("--dataset_name", type=str, choices=["dataset_a", "dataset_b"], help="Dataset name for prediction")
+    parser.add_argument("--dataset_name", type=str, help="Dataset name for prediction")
     parser.add_argument("--output", type=str, default="predictions/dataset_a.csv", help="Output CSV path for predictions")
     parser.add_argument("--top_k", type=int, default=20, help="Number of ranked results per query")
 
