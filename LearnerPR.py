@@ -406,25 +406,40 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 # ============================================================================
 
 def load_db_queries(root, dataset_name):
+    import os
+    import pandas as pd
+
     csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
     df = pd.read_csv(csv_path)
 
-    # 🔑 Build image paths from panoid
-    df["image_path"] = df["panoid"].apply(
-        lambda x: os.path.join(root, "Images", dataset_name, f"{x}.jpg")
-    )
+    image_dir = os.path.join(root, "Images", dataset_name)
 
-    # 🔑 Split by place_id (THIS IS THE KEY IDEA)
+    # 🔑 Step 1: build panoid → full path mapping
+    panoid_to_path = {}
+    for fname in os.listdir(image_dir):
+        if not fname.endswith(".jpg"):
+            continue
+        panoid = fname.split("_")[-1].replace(".jpg", "")
+        panoid_to_path[panoid] = os.path.join(image_dir, fname)
+
+    print(f"Mapped {len(panoid_to_path)} images")
+
+    # 🔑 Step 2: attach paths to dataframe
+    df["image_path"] = df["panoid"].map(panoid_to_path)
+
+    # drop rows where image is missing
+    df = df.dropna(subset=["image_path"])
+
+    # 🔑 Step 3: split by place_id
     db_list = []
     query_list = []
 
     for place_id, group in df.groupby("place_id"):
         if len(group) < 2:
-            continue  # need at least 2 images
+            continue
 
-        group = group.sample(frac=1, random_state=42)  # shuffle
+        group = group.sample(frac=1, random_state=42)
 
-        # 1 query, rest database
         query_list.append(group.iloc[0])
         db_list.extend(group.iloc[1:].to_dict("records"))
 
