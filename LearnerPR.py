@@ -14,13 +14,8 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import models, transforms
 from PIL import Image
 from tqdm import tqdm
-import sys
-import os
 
-# This ensures Python can see the 'dataloaders' folder in your current directory
-sys.path.append(os.getcwd())
 
-from dataloaders.GSVCitiesDataloader import GSVCitiesDataset
 
 # ============================================================================
 # Dataset
@@ -406,30 +401,37 @@ def encode_images(model, dataset, batch_size, num_workers, device):
     return embeddings[np.argsort(indices)]
 
 
+# ============================================================================
+# Simplified Loader (No GitHub Dependencies)
+# ============================================================================
+
 def load_db_queries(root, dataset_name):
-    # 1. Initialize the official dataset
-    val_ds = GSVCitiesDataset(
-        cities=[dataset_name],
-        root_dir=root,
-        transform=None
-    )
+    """
+    Manually loads database and query paths from the GSV-Cities CSV files.
+    Assumes your data is at: {root}/Dataframes/{dataset_name}.csv
+    """
+    csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
+    if not os.path.exists(csv_path):
+        # Try Parquet if CSV isn't there
+        csv_path = csv_path.replace(".csv", ".parquet")
+        df = pd.read_parquet(csv_path)
+    else:
+        df = pd.read_csv(csv_path)
 
-    # 2. The class automatically splits references and queries internally.
-    # We can use its internal 'test_indices' or 'df' role column.
-    db_df = val_ds.df[val_ds.df['role'] == 'database']
-    q_df = val_ds.df[val_ds.df['role'] == 'queries']
+    # Filter by role
+    db_df = df[df['role'] == 'database']
+    q_df = df[df['role'] == 'queries']
 
-    # 3. Instead of building strings, get the full paths from the object's logic
-    # The GSVCitiesDataset usually stores the full filenames in val_ds.filenames
-    def get_paths_from_object(indices):
-        return [os.path.join(root, "Images", dataset_name, val_ds.filenames[i]) for i in indices]
+    # Build paths based on the GSV-Cities folder structure
+    # images are usually in {root}/Images/{dataset_name}/{filename}
+    db_paths = [os.path.join(root, "Images", dataset_name, f) for f in db_df['image_path'].values]
+    query_paths = [os.path.join(root, "Images", dataset_name, f) for f in q_df['image_path'].values]
 
-    # Map the dataframe indices back to the filename list
-    # Map the dataframe indices back to the filename list using absolute paths
-    db_paths = [os.path.join(root, "Images", dataset_name, val_ds.filenames[i]) for i in db_df.index]
-    query_paths = [os.path.join(root, "Images", dataset_name, val_ds.filenames[i]) for i in q_df.index]
+    print(f"--- Evaluation Mode ---")
+    print(f"Dataset: {dataset_name}")
+    print(f"Database images: {len(db_paths)}")
+    print(f"Query images: {len(query_paths)}")
 
-    print(f"Successfully loaded {len(db_paths)} database and {len(query_paths)} query paths.")
     return db_paths, query_paths
 
 
