@@ -401,23 +401,28 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 
 def load_db_queries(root, dataset_name):
-    # 1. Build path to the city CSV
+    """
+    Final robust loader: Handles missing role/split columns by manual 50/50 split.
+    """
     csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
     print(f"Loading evaluation metadata from: {csv_path}")
     df = pd.read_csv(csv_path)
 
-    # 2. Determine which column to use for splitting (role or split)
-    split_col = "role" if "role" in df.columns else "split"
+    # 1. Determine splitting logic
+    if "role" in df.columns:
+        db_df = df[df["role"] == "database"]
+        q_df = df[df["role"] == "queries"]
+    elif "split" in df.columns:
+        db_df = df[df["split"] == "database"]
+        q_df = df[df["split"] == "queries"]
+    else:
+        # Fallback: Split the city data 50/50 since identifiers are missing
+        print(f"Warning: No split column found in {dataset_name}.csv. Performing manual 50/50 split.")
+        mid = len(df) // 2
+        db_df = df.iloc[:mid]
+        q_df = df.iloc[mid:]
 
-    if split_col not in df.columns:
-        raise KeyError(f"Could not find a 'role' or 'split' column in {dataset_name}.csv. "
-                       f"Available columns: {list(df.columns)}")
-
-    # 3. Use the correct column to separate Database and Queries
-    db_df = df[df[split_col] == "database"]
-    q_df = df[df[split_col] == "queries"]
-
-    # 4. Prepend 'Images' to paths
+    # 2. Fix the Pathing (Prepend 'Images')
     db_paths = [os.path.join("Images", p) for p in db_df["image_path"].tolist()]
     query_paths = [os.path.join("Images", p) for p in q_df["image_path"].tolist()]
 
