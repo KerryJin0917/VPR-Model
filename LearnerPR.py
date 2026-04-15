@@ -402,7 +402,7 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 def load_db_queries(root, dataset_name):
     """Load database/query paths based on dataset name."""
-    df = pd.read_parquet(os.path.join(root, "test.parquet"))
+    df = pd.read_parquet(os.path.join(root, "train.parquet"))
 
     if dataset_name == "dataset_a":
         db_df = df[df["split"] == "database"].sort_values("image_path")
