@@ -402,51 +402,42 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 
 def load_db_queries(root, dataset_name):
     """
-    Robust loader for GSV-Cities.
-    Handles city-specific CSVs, missing split roles, and identifier-based pathing.
+    Final refined loader for GSV-Cities city CSVs.
     """
-    # 1. Path definitions
-    parquet_path = os.path.join(root, "train.parquet")
     csv_path = os.path.join(root, "Dataframes", f"{dataset_name}.csv")
+    print(f"Loading evaluation metadata from: {csv_path}")
+    df = pd.read_csv(csv_path)
 
-    # 2. Load the metadata file
-    if dataset_name == "gsv_cities" and os.path.exists(parquet_path):
-        print(f"Loading consolidated parquet: {parquet_path}")
-        df = pd.read_parquet(parquet_path)
-    elif os.path.exists(csv_path):
-        print(f"Loading city CSV: {csv_path}")
-        df = pd.read_csv(csv_path)
-    else:
-        raise FileNotFoundError(f"Could not find {parquet_path} or {csv_path}")
-
-    # 3. Handle the 'role' or 'split' column (Required for separation)
+    # 1. Split logic (Fall back to 50/50 if split/role is missing)
     if "role" in df.columns:
-        db_df = df[df["role"] == "database"]
-        q_df = df[df["role"] == "queries"]
+        db_df, q_df = df[df["role"] == "database"], df[df["role"] == "queries"]
     elif "split" in df.columns:
-        db_df = df[df["split"] == "database"]
-        q_df = df[df["split"] == "queries"]
+        db_df, q_df = df[df["split"] == "database"], df[df["split"] == "queries"]
     else:
-        # Fallback for London.csv style files: Split 50/50
-        print(f"Warning: No split column found in {dataset_name}. Performing manual 50/50 split.")
+        print(f"Manual 50/50 split for {dataset_name}")
         mid = len(df) // 2
-        db_df = df.iloc[:mid]
-        q_df = df.iloc[mid:]
+        db_df, q_df = df.iloc[:mid], df.iloc[mid:]
 
-    # 4. Build image paths (Handles 'image_path' vs 'panoid' identifiers)
+    # 2. Refined Path Building
     def get_paths(dataframe):
         paths = []
         for _, row in dataframe.iterrows():
             if "image_path" in row and pd.notna(row["image_path"]):
+                # Case for train.parquet
                 paths.append(os.path.join("Images", row["image_path"]))
             else:
-                # Build path from identifiers: Images/London/panoid.jpg
-                img_name = f"{row['panoid']}.jpg"
-                paths.append(os.path.join("Images", dataset_name, img_name))
+                # Case for London.csv: Images / London / panoid.jpg
+                # Note: We use dataset_name (London) as the subfolder
+                img_path = os.path.join("Images", dataset_name, f"{row['panoid']}.jpg")
+                paths.append(img_path)
         return paths
 
     db_paths = get_paths(db_df)
     query_paths = get_paths(q_df)
+
+    # Debug check: print the first path to verify structure
+    if db_paths:
+        print(f"First image path check: {os.path.join(root, db_paths[0])}")
 
     return db_paths, query_paths
 
