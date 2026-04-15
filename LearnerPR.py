@@ -386,7 +386,7 @@ class ImageDataset(Dataset):
         return len(self.image_paths)
 
     def __getitem__(self, idx):
-        path = os.path.join(self.root, self.image_paths[idx])
+        path = self.image_paths[idx] # Use the path as-is
         image = Image.open(path).convert("RGB")
         return self.transform(image), idx
 
@@ -425,6 +425,7 @@ def load_db_queries(root, dataset_name):
         return [os.path.join(root, "Images", dataset_name, val_ds.filenames[i]) for i in indices]
 
     # Map the dataframe indices back to the filename list
+    # Map the dataframe indices back to the filename list using absolute paths
     db_paths = [os.path.join(root, "Images", dataset_name, val_ds.filenames[i]) for i in db_df.index]
     query_paths = [os.path.join(root, "Images", dataset_name, val_ds.filenames[i]) for i in q_df.index]
 
