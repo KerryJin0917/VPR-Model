@@ -86,7 +86,7 @@ def recall_at_k(sim, q_labels, db_labels, ks=(1, 5, 10)):
 # ============================================================
 def evaluate_city(model, city_path, image_size, batch_size, device):
     db_path = os.path.join(city_path, "database")
-    q_path = os.path.join(city_path, "queries")
+    q_path = os.path.join(city_path, "query")
 
     db_imgs = sorted([
         os.path.join(db_path, f)
