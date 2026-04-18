@@ -213,7 +213,6 @@ class TrainableModel(nn.Module):
         # Load DINOv2 without the head
         self.backbone = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14')
 
-        self.backbone.backbone.model.layers.set_checkpointing(True)
         # New: GeM Pooling layer
         self.pooling = GeM()
 
