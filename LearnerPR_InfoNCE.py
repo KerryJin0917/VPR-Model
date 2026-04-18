@@ -427,11 +427,12 @@ def train(args):
             # remove memory from positives (memory has no labels)
             pos_mask = F.pad(pos_mask, (0, mem.size(0)))
 
+            # 1. Softmax over the full (batch + memory) logits
             log_prob = F.log_softmax(logits, dim=1)
 
-            batch_log_prob = log_prob[:, :embeddings.size(0)]
-
-            base_loss = -(batch_log_prob * pos_mask).sum(1) / (pos_mask.sum(1) + 1e-8)
+            # 2. Use the full log_prob (64, 8256) and the padded pos_mask (64, 8256)
+            # This calculates the loss considering all negatives in the memory bank
+            base_loss = -(log_prob * pos_mask).sum(1) / (pos_mask.sum(1) + 1e-8)
             base_loss = base_loss.mean()
 
             # update memory bank
