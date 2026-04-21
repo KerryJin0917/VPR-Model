@@ -439,55 +439,47 @@ def train(args):
             # =========================
             with torch.amp.autocast("cuda"):
                 embeddings = model(images)
-                embeddings = F.normalize(embeddings, dim=1)
-                B = embeddings.size(0)
-                mem, mem_labels = memory_bank.get()
+            embeddings = F.normalize(embeddings, dim=1)
 
-                all_feats = torch.cat([embeddings, mem], dim=0)
-                all_labels = torch.cat([labels, mem_labels], dim=0)
+            temperature = 0.07
 
-                all_feats = F.normalize(all_feats, dim=1)
+            mem, mem_labels = memory_bank.get()
 
-                logits = torch.matmul(embeddings, all_feats.T)
+            all_feats = torch.cat([embeddings, mem], dim=0)
+            all_labels = torch.cat([labels, mem_labels], dim=0)
 
-                logits = logits.clamp(-20, 20)
-                logits = logits / 0.07
+            all_feats = F.normalize(all_feats, dim=1)
+            embeddings_f = embeddings.float()
+            all_feats_f = all_feats.float()
 
-                # mask self similarity (only batch part)
-                self_mask = torch.eye(B, device=device, dtype=torch.bool)
-                logits[:, :B][self_mask] = -1e9
+            logits = torch.matmul(embeddings_f, all_feats_f.T) / temperature
 
-                log_prob = F.log_softmax(logits, dim=1)
+            # 🔥 numerical stability clamp
+            logits = logits - logits.max(dim=1, keepdim=True)[0]
+            B = embeddings.size(0)
 
-                pos_mask = (labels.unsqueeze(1) == all_labels.unsqueeze(0)).float()
+             # mask self similarity
+            self_mask = torch.eye(B, device=device, dtype=torch.bool)
+            logits[:, :B][self_mask] = -1e9
 
-                pos_sum = pos_mask.sum(dim=1)
+            log_prob = F.log_softmax(logits, dim=1)
 
-                valid = pos_sum > 0
+            pos_mask = (labels.unsqueeze(1) == all_labels.unsqueeze(0)).float()
 
-                loss_per_sample = torch.zeros_like(pos_sum, dtype=torch.float)
+            pos_sum = pos_mask.sum(dim=1)
 
-                loss_per_sample[valid] = -(
-                        log_prob[valid] * pos_mask[valid]
-                ).sum(dim=1) / pos_sum[valid]
+            valid = pos_sum > 0
 
-                base_loss = loss_per_sample[valid].mean()
-                if torch.isnan(logits).any():
-                    print("NaN in logits!")
-
-                if torch.isnan(embeddings).any():
-                    print("NaN in embeddings!")
+            if valid.sum() == 0:
+                loss = torch.tensor(0.0, device=device, requires_grad=True)
+            else:
+                loss_per_sample = -(log_prob[valid] * pos_mask[valid]).sum(dim=1) / pos_sum[valid].clamp(min=1.0)
+                loss = loss_per_sample.mean()
 
 
-
-                if args.loss == "infonce":
-                    loss = base_loss
-                else:
-                    loss = criterion(embeddings, labels)
-
-                if args.use_distill:
-                    rkd_loss = rkd_criterion(embeddings, teacher_embeddings)
-                    loss = loss + 0.5 * rkd_loss
+            if args.use_distill:
+                rkd_loss = rkd_criterion(embeddings.float(), teacher_embeddings.float())
+                loss = loss + 0.5 * rkd_loss
 
             # =========================
             # Backprop
