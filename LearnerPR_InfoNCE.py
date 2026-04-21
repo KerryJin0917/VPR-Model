@@ -472,6 +472,11 @@ def train(args):
                 ).sum(dim=1) / pos_sum[valid]
 
                 base_loss = loss_per_sample[valid].mean()
+                if torch.isnan(logits).any():
+                    print("NaN in logits!")
+
+                if torch.isnan(embeddings).any():
+                    print("NaN in embeddings!")
 
 
 
