@@ -426,9 +426,13 @@ def train(args):
                 all_feats = torch.cat([embeddings, mem], dim=0)
                 logits = torch.matmul(embeddings, all_feats.T) / 0.07
 
+
                 B = embeddings.size(0)
-                self_mask = torch.eye(B, device=device).bool()
-                logits[:, :B] = logits[:, :B].masked_fill(self_mask, torch.finfo(logits.dtype).min)
+                self_mask = torch.eye(B, device=embeddings.device, dtype=torch.bool)
+                logits[:, :B] = logits[:, :B].masked_fill(
+                    self_mask,
+                    torch.finfo(logits.dtype).min
+                )
 
                 labels_exp = labels.unsqueeze(1)
                 pos_mask = (labels_exp == labels_exp.T).float().to(device)
@@ -462,6 +466,7 @@ def train(args):
 
             scaler.step(optimizer)
             scaler.update()
+            optimizer.step()
             scheduler.step()
 
             # Memory update
@@ -706,7 +711,7 @@ def main():
     parser.add_argument("--data_root", type=str, default="./datasets/dataset_b", help="Dataset root for training")
     parser.add_argument("--save_dir", type=str, default="./checkpoints", help="Directory to save checkpoints")
     parser.add_argument("--loss", type=str, default="contrastive", choices=["contrastive", "triplet", "infonce"], help="Loss function")
-    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay")
     parser.add_argument("--epochs", type=int, default=20, help="Number of epochs")
     parser.add_argument("--warmup_epochs", type=int, default=2, help="Warmup epochs")
