@@ -447,7 +447,7 @@ def train(args):
                 # 5. Mask out self-similarity (only within the batch part)
                 B = embeddings.size(0)
                 self_mask = torch.eye(B, device=device, dtype=torch.bool)
-                logits[:, :B].masked_fill_(self_mask, -1e9)
+                logits[:, :B].masked_fill_(self_mask, -1e4)
 
                 # 6. Loss calculation
                 log_prob = F.log_softmax(logits, dim=1)
