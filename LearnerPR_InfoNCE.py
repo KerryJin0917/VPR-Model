@@ -424,7 +424,8 @@ def train(args):
 
                 mem = memory_bank.get()
                 all_feats = torch.cat([embeddings, mem], dim=0)
-                logits = torch.matmul(embeddings, all_feats.T) / 0.07
+                logits = torch.matmul(embeddings.float(), all_feats.float().T)
+                logits = logits / 0.07
 
 
                 B = embeddings.size(0)
@@ -433,6 +434,8 @@ def train(args):
                     self_mask,
                     torch.finfo(logits.dtype).min
                 )
+
+                logits = torch.clamp(logits, -10, 10)
 
                 labels_exp = labels.unsqueeze(1)
                 pos_mask = (labels_exp == labels_exp.T).float().to(device)
@@ -466,7 +469,6 @@ def train(args):
 
             scaler.step(optimizer)
             scaler.update()
-            optimizer.step()
             scheduler.step()
 
             # Memory update
