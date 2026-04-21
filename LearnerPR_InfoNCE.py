@@ -224,6 +224,7 @@ class TrainableModel(nn.Module):
             nn.ReLU(),
             nn.Linear(512, embedding_dim)
         )
+        self.teacher_proj = nn.Linear(1024, embedding_dim)
 
     def forward(self, x):
         # Change: Use the output of the last block (n=1, index -1)
@@ -233,7 +234,8 @@ class TrainableModel(nn.Module):
 
         # Reshape tokens back to spatial grid
         b, n, c = features.shape
-        h = w = int(math.sqrt(n))
+        h = int(math.sqrt(n))
+        w = n // h
         features = features.transpose(1, 2).reshape(b, c, h, w) # (B, 384, 16, 16)
 
         pooled = self.pooling(features)
@@ -297,12 +299,16 @@ class MemoryBank:
     @torch.no_grad()
     def update(self, feats):
         b = feats.size(0)
+        end = self.ptr + b
 
-        if self.ptr + b > self.size:
-            self.ptr = 0
+        if end <= self.size:
+            self.bank[self.ptr:end] = feats.detach()
+        else:
+            first = self.size - self.ptr
+            self.bank[self.ptr:] = feats[:first].detach()
+            self.bank[:end % self.size] = feats[first:].detach()
 
-        self.bank[self.ptr:self.ptr+b] = feats.detach()
-        self.ptr += b
+        self.ptr = end % self.size
 
     def get(self):
         return self.bank
@@ -314,7 +320,7 @@ def train(args):
     parquet_file = "train.parquet" if os.path.exists(os.path.join(args.data_root, "train.parquet")) else "test.parquet"
     dataset = VPRTrainDataset(args.data_root, parquet_file=parquet_file,
                               image_size=(args.image_size, args.image_size))
-    sampler = PKBatchSampler(dataset.labels, P=8, K=8)
+    sampler = PKBatchSampler(dataset.labels, P=16, K=4)
 
     dataloader = DataLoader(
         dataset,
@@ -360,10 +366,14 @@ def train(args):
 
     # Only grab loss params if the loss actually has them (like ContrastiveLoss)
     loss_params = []
+    if isinstance(criterion, ContrastiveLoss):
+        loss_params = list(criterion.parameters())
 
     optimizer = torch.optim.AdamW([
         {"params": backbone_params, "lr": args.lr * 0.01},
         {"params": head_params, "lr": args.lr},
+        {"params": model.teacher_proj.parameters(), "lr": args.lr},
+        {"params": loss_params, "lr": args.lr},
     ], weight_decay=args.weight_decay)
 
     # LR Scheduler: cosine annealing with warmup
@@ -382,6 +392,7 @@ def train(args):
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
     best_loss = float('inf')
+    scaler = torch.amp.GradScaler("cuda")
 
     for epoch in range(args.epochs):
         model.train()
@@ -395,97 +406,98 @@ def train(args):
             images = images.to(device)
             labels = labels.to(device)
 
-            # 1. New: Get Teacher embeddings (Frozen, no gradients needed)
-            with torch.no_grad():
-                teacher_embeddings = teacher(images)
-                teacher_embeddings = F.normalize(teacher_embeddings, p=2, dim=1)
+            # =========================
+            # Teacher forward (frozen)
+            # =========================
+            with torch.no_grad(), torch.amp.autocast("cuda"):
+                t_feats = teacher.forward_features(images)["x_norm_clstoken"]
 
-            #2. Existing: Get Student embeddings
-            embeddings = model(images)
+            teacher_embeddings = model.teacher_proj(t_feats.float())
+            teacher_embeddings = F.normalize(teacher_embeddings, dim=1)
 
-            # 3. New: Generate normalized version for RKD loss computation
-            embeddings_norm = F.normalize(embeddings, p=2, dim=1)
+            # =========================
+            # Student forward
+            # =========================
+            with torch.amp.autocast("cuda"):
+                embeddings = model(images)
+                embeddings = F.normalize(embeddings, dim=1)
 
-            # ============================================================
-            # BASE LOSS: Memory Bank Supervised Contrastive
-            # ============================================================
+                mem = memory_bank.get()
+                all_feats = torch.cat([embeddings, mem], dim=0)
+                logits = torch.matmul(embeddings, all_feats.T) / 0.07
 
-            embeddings = F.normalize(embeddings, dim=1)
+                B = embeddings.size(0)
+                self_mask = torch.eye(B, device=device).bool()
+                logits[:, :B] = logits[:, :B].masked_fill(self_mask, -1e9)
 
-            mem = memory_bank.get().detach()
+                labels_exp = labels.unsqueeze(1)
+                pos_mask = (labels_exp == labels_exp.T).float().to(device)
 
-            # Combine batch + memory
-            all_feats = torch.cat([embeddings, mem], dim=0)
-
-            # logits: (B, B+M)
-            logits = torch.matmul(embeddings, all_feats.T) / 0.07
-
-            # positives only within batch
-            labels = labels.unsqueeze(1)
-            pos_mask = (labels == labels.T).float().to(device)
-
-            # remove memory from positives (memory has no labels)
-            pos_mask = F.pad(pos_mask, (0, mem.size(0)))
-
-            # 1. Softmax over the full (batch + memory) logits
-            log_prob = F.log_softmax(logits, dim=1)
-
-            # 2. Use the full log_prob (64, 8256) and the padded pos_mask (64, 8256)
-            # This calculates the loss considering all negatives in the memory bank
-            base_loss = -(log_prob * pos_mask).sum(1) / (pos_mask.sum(1) + 1e-8)
-            base_loss = base_loss.mean()
-
-            # update memory bank
-            memory_bank.update(embeddings.detach())
-
-            # ============================================================
-            # FINAL LOSS (with optional distillation)
-            # ============================================================
-
-            loss = base_loss
-
-            if args.use_distill:
-                rkd_loss = rkd_criterion(
-                    F.normalize(embeddings, dim=1),
-                    F.normalize(teacher_embeddings, dim=1)
+                pos_mask = torch.cat(
+                    [pos_mask, torch.zeros((B, mem.size(0)), device=device)],
+                    dim=1
                 )
-                alpha = 10.0
-                # This line MUST be inside the if block
-                loss = loss + alpha * rkd_loss
 
+                log_prob = F.log_softmax(logits, dim=1)
+                base_loss = -(log_prob * pos_mask).sum(1) / (pos_mask.sum(1) + 1e-8)
+                base_loss = base_loss.mean()
+
+                if args.loss == "infonce":
+                    loss = base_loss
+                else:
+                    loss = criterion(embeddings, labels)
+
+                if args.use_distill:
+                    rkd_loss = rkd_criterion(embeddings, teacher_embeddings)
+                    loss = loss + 10.0 * rkd_loss
+
+            # =========================
+            # Backprop
+            # =========================
             optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
+            scaler.scale(loss).backward()
+
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+            scaler.step(optimizer)
+            scaler.update()
             scheduler.step()
 
+            # Memory update
+            with torch.no_grad():
+                memory_bank.update(embeddings.detach())
+
             epoch_loss += loss.item()
-            pbar.set_postfix(loss=f"{loss.item():.4f}", lr=f"{scheduler.get_last_lr()[0]:.6f}")
+            pbar.set_postfix(
+                loss=f"{loss.item():.4f}",
+                lr=f"{scheduler.get_last_lr()[0]:.6f}"
+            )
 
-        avg_loss = epoch_loss / len(dataloader)
-        print(f"Epoch {epoch+1}: avg_loss={avg_loss:.4f}")
+    # =========================
+    # NOW OUTSIDE LOOP (IMPORTANT)
+    # =========================
+    avg_loss = epoch_loss / len(dataloader)
+    print(f"Epoch {epoch+1}: avg_loss={avg_loss:.4f}")
 
-        if avg_loss < best_loss:
-            best_loss = avg_loss
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': avg_loss,
-                'embedding_dim': args.embedding_dim,
-            }, save_dir / "best_model.pth")
-            print(f"  Saved best model (loss={avg_loss:.4f})")
+    if avg_loss < best_loss:
+        best_loss = avg_loss
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': avg_loss,
+            'embedding_dim': args.embedding_dim,
+        }, save_dir / "best_model.pth")
+        print(f"Saved best model (loss={avg_loss:.4f})")
 
-        if (epoch + 1) % args.save_every == 0:
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'loss': avg_loss,
-                'embedding_dim': args.embedding_dim,
-            }, save_dir / f"checkpoint_epoch{epoch+1}.pth")
-
-    print(f"\nTraining complete. Best loss: {best_loss:.4f}")
-    print(f"Checkpoints saved to: {save_dir}")
+    if (epoch + 1) % args.save_every == 0:
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'loss': avg_loss,
+            'embedding_dim': args.embedding_dim,
+        }, save_dir / f"checkpoint_epoch{epoch+1}.pth")
 
 
 # ============================================================================
@@ -541,7 +553,7 @@ def encode_images_multiscale(model, dataset, device, scales=[0.707, 1.0, 1.414])
                 else:
                     x = images
 
-                x = normalize(x)
+
                 feats.append(model.encode(x))
 
             feats = torch.stack(feats).mean(dim=0)
@@ -693,7 +705,7 @@ def main():
     # Training args
     parser.add_argument("--data_root", type=str, default="./datasets/dataset_b", help="Dataset root for training")
     parser.add_argument("--save_dir", type=str, default="./checkpoints", help="Directory to save checkpoints")
-    parser.add_argument("--loss", type=str, default="contrastive", choices=["contrastive", "triplet"], help="Loss function")
+    parser.add_argument("--loss", type=str, default="contrastive", choices=["contrastive", "triplet", "infonce"], help="Loss function")
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay")
     parser.add_argument("--epochs", type=int, default=20, help="Number of epochs")
