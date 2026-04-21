@@ -429,6 +429,7 @@ def train(args):
             with torch.amp.autocast("cuda"):
                 embeddings = model(images)
                 embeddings = F.normalize(embeddings, dim=1)
+                B = embeddings.size(0)
                 # 1. Get memory bank features AND labels
                 mem, mem_labels = memory_bank.get()
 
@@ -442,14 +443,13 @@ def train(args):
                 labels_exp = labels.unsqueeze(1) # (B, 1)
                 # Create (B, B+M) mask
                 pos_mask = (labels_exp == all_labels.unsqueeze(0)).float().to(device)
-                mem_pad = torch.zeros((B, mem.size(0)), device=device)
-                pos_mask = torch.cat([pos_mask, mem_pad], dim=1)
+
 
                 # 4. Compute similarity
                 logits = torch.matmul(embeddings.float(), all_feats.float().T) / 0.07
 
                 # 5. Mask out self-similarity (only within the batch part)
-                B = embeddings.size(0)
+
                 self_mask = torch.eye(B, device=device, dtype=torch.bool)
                 logits[:, :B].masked_fill_(self_mask, -1e4)
 
