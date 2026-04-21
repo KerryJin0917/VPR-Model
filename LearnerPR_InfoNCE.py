@@ -383,16 +383,17 @@ def train(args):
     ], weight_decay=args.weight_decay)
 
     # LR Scheduler: cosine annealing with warmup
-    total_steps = len(dataloader) * args.epochs
-    warmup_steps = len(dataloader) * args.warmup_epochs
+    total_steps = args.epochs * len(dataloader)
+    warmup_steps = int(0.1 * total_steps)
 
     def lr_lambda(step):
         if step < warmup_steps:
             return step / max(warmup_steps, 1)
         progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
+        progress = min(progress, 1.0)  # clamp
         return 0.5 * (1 + math.cos(math.pi * progress))
 
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch=-1)
 
     # Training
     save_dir = Path(args.save_dir)
@@ -416,7 +417,8 @@ def train(args):
             # Teacher forward (frozen)
             # =========================
             with torch.no_grad(), torch.amp.autocast("cuda"):
-                t_feats = teacher.forward_features(images)["x_norm_clstoken"]
+                t_feats = teacher.forward_features(images)["x_norm_patchtokens"]
+                t_feats = t_feats.mean(dim=1)
 
             teacher_embeddings = model.teacher_proj(t_feats.float())
             teacher_embeddings = F.normalize(teacher_embeddings, dim=1)
@@ -440,6 +442,8 @@ def train(args):
                 labels_exp = labels.unsqueeze(1) # (B, 1)
                 # Create (B, B+M) mask
                 pos_mask = (labels_exp == all_labels.unsqueeze(0)).float().to(device)
+                mem_pad = torch.zeros((B, mem.size(0)), device=device)
+                pos_mask = torch.cat([pos_mask, mem_pad], dim=1)
 
                 # 4. Compute similarity
                 logits = torch.matmul(embeddings.float(), all_feats.float().T) / 0.07
@@ -464,12 +468,12 @@ def train(args):
 
                 if args.use_distill:
                     rkd_loss = rkd_criterion(embeddings, teacher_embeddings)
-                    loss = loss + 10.0 * rkd_loss
+                    loss = loss + 0.5 * rkd_loss
 
             # =========================
             # Backprop
             # =========================
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
 
             scaler.unscale_(optimizer)
@@ -477,7 +481,8 @@ def train(args):
 
             scaler.step(optimizer)
             scaler.update()
-            optimizer.zero_grad(set_to_none=True)
+
+
             scheduler.step()
 
             # Memory update
@@ -485,9 +490,11 @@ def train(args):
                 memory_bank.update(embeddings.detach(), labels.detach())
 
             epoch_loss += loss.item()
+            lrs = scheduler.get_last_lr()
             pbar.set_postfix(
                 loss=f"{loss.item():.4f}",
-                lr=f"{scheduler.get_last_lr()[0]:.6f}"
+                lr_backbone=f"{lrs[0]:.2e}",
+                lr_head=f"{lrs[1]:.2e}"
             )
 
     # =========================
