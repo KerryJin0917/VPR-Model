@@ -469,7 +469,8 @@ def train(args):
 
             scaler.step(optimizer)
             scaler.update()
-            scheduler.step()
+            optimizer.zero_grad(set_to_none=True)
+            #scheduler.step()
 
             # Memory update
             with torch.no_grad():
