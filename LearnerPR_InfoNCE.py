@@ -294,24 +294,30 @@ class MemoryBank:
         self.size = size
         self.bank = torch.randn(size, dim).to(device)
         self.bank = F.normalize(self.bank, dim=1)
+        # Add labels storage
+        self.bank_labels = torch.zeros(size, dtype=torch.long).to(device)
         self.ptr = 0
 
     @torch.no_grad()
-    def update(self, feats):
+    def update(self, feats, labels): # Accept labels
         b = feats.size(0)
         end = self.ptr + b
 
+        # Handle wrap-around
         if end <= self.size:
             self.bank[self.ptr:end] = feats.detach()
+            self.bank_labels[self.ptr:end] = labels.detach()
         else:
             first = self.size - self.ptr
             self.bank[self.ptr:] = feats[:first].detach()
+            self.bank_labels[self.ptr:] = labels[:first].detach()
             self.bank[:end % self.size] = feats[first:].detach()
+            self.bank_labels[:end % self.size] = labels[first:].detach()
 
         self.ptr = end % self.size
 
     def get(self):
-        return self.bank
+        return self.bank, self.bank_labels
 
 def train(args):
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
@@ -370,8 +376,8 @@ def train(args):
         loss_params = list(criterion.parameters())
 
     optimizer = torch.optim.AdamW([
-        {"params": backbone_params, "lr": args.lr * 0.01},
-        {"params": head_params, "lr": args.lr * 2},
+        {"params": backbone_params, "lr": args.lr * 0.1},
+        {"params": head_params, "lr": args.lr},
         {"params": model.teacher_proj.parameters(), "lr": args.lr},
         {"params": loss_params, "lr": args.lr},
     ], weight_decay=args.weight_decay)
@@ -386,10 +392,7 @@ def train(args):
         progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
         return 0.5 * (1 + math.cos(math.pi * progress))
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=len(dataloader) * args.epochs
-    )
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
     # Training
     save_dir = Path(args.save_dir)
@@ -424,33 +427,35 @@ def train(args):
             with torch.amp.autocast("cuda"):
                 embeddings = model(images)
                 embeddings = F.normalize(embeddings, dim=1)
+                # 1. Get memory bank features AND labels
+                mem, mem_labels = memory_bank.get()
 
-                mem = memory_bank.get()
+                # 2. Combine current batch and memory bank
                 all_feats = torch.cat([embeddings, mem], dim=0)
-                logits = torch.matmul(embeddings.float(), all_feats.float().T)
-                logits = logits / 0.07
+                all_labels = torch.cat([labels, mem_labels], dim=0)
 
+                # 3. Create the POSITIVE mask for the entire concatenated set (B, B + M)
+                # We only care about positive relations between the current batch (rows)
+                # and the whole set (cols).
+                labels_exp = labels.unsqueeze(1) # (B, 1)
+                # Create (B, B+M) mask
+                pos_mask = (labels_exp == all_labels.unsqueeze(0)).float().to(device)
 
+                # 4. Compute similarity
+                logits = torch.matmul(embeddings.float(), all_feats.float().T) / 0.07
+
+                # 5. Mask out self-similarity (only within the batch part)
                 B = embeddings.size(0)
-                self_mask = torch.eye(B, device=embeddings.device, dtype=torch.bool)
-                logits[:, :B] = logits[:, :B].masked_fill(
-                    self_mask,
-                    torch.finfo(logits.dtype).min
-                )
+                self_mask = torch.eye(B, device=device, dtype=torch.bool)
+                logits[:, :B].masked_fill_(self_mask, -1e9)
 
-                logits = torch.clamp(logits, -10, 10)
-
-                labels_exp = labels.unsqueeze(1)
-                pos_mask = (labels_exp == labels_exp.T).float().to(device)
-
-                pos_mask = torch.cat(
-                    [pos_mask, torch.zeros((B, mem.size(0)), device=device)],
-                    dim=1
-                )
-
+                # 6. Loss calculation
                 log_prob = F.log_softmax(logits, dim=1)
+                # Calculate loss only for positive pairs
                 base_loss = -(log_prob * pos_mask).sum(1) / (pos_mask.sum(1) + 1e-8)
                 base_loss = base_loss.mean()
+
+
 
                 if args.loss == "infonce":
                     loss = base_loss
@@ -477,7 +482,7 @@ def train(args):
 
             # Memory update
             with torch.no_grad():
-                memory_bank.update(embeddings.detach())
+                memory_bank.update(embeddings.detach(), labels.detach())
 
             epoch_loss += loss.item()
             pbar.set_postfix(
@@ -497,8 +502,9 @@ def train(args):
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
+            'memory_bank': memory_bank.bank, # Save the tensor
+            'memory_ptr': memory_bank.ptr,   # Save the pointer
             'loss': avg_loss,
-            'embedding_dim': args.embedding_dim,
         }, save_dir / "best_model.pth")
         print(f"Saved best model (loss={avg_loss:.4f})")
 
@@ -568,6 +574,7 @@ def encode_images_multiscale(model, dataset, device, scales=[0.707, 1.0, 1.414])
                 feats.append(model.encode(x))
 
             feats = torch.stack(feats).mean(dim=0)
+            feats = F.normalize(feats, p=2, dim=1)
             all_feats.append(feats.cpu().numpy())
 
     return np.vstack(all_feats)
@@ -640,7 +647,7 @@ def compute_recall_at_k(rankings, db_labels, query_labels, ks=[1,5,10,20]):
 
     return recalls
 
-def rerank_topk(query_emb, db_emb, rankings, top_m=50):
+def rerank_topk(query_emb, db_emb, rankings, top_m=100):
     reranked = []
 
     for i in range(len(query_emb)):
@@ -668,6 +675,7 @@ def predict(args):
     model = TrainableModel(embedding_dim=args.embedding_dim).to(device)
     checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=True)
     model.load_state_dict(checkpoint["model_state_dict"])
+    
     model.eval()
     print(f"Loaded checkpoint: {args.checkpoint} (epoch {checkpoint.get('epoch', '?')})")
 
