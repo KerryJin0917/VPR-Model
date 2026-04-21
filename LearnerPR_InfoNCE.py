@@ -371,7 +371,7 @@ def train(args):
 
     optimizer = torch.optim.AdamW([
         {"params": backbone_params, "lr": args.lr * 0.01},
-        {"params": head_params, "lr": args.lr},
+        {"params": head_params, "lr": args.lr * 2},
         {"params": model.teacher_proj.parameters(), "lr": args.lr},
         {"params": loss_params, "lr": args.lr},
     ], weight_decay=args.weight_decay)
@@ -386,7 +386,10 @@ def train(args):
         progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
         return 0.5 * (1 + math.cos(math.pi * progress))
 
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=len(dataloader) * args.epochs
+    )
 
     # Training
     save_dir = Path(args.save_dir)
@@ -470,7 +473,7 @@ def train(args):
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
-            #scheduler.step()
+            scheduler.step()
 
             # Memory update
             with torch.no_grad():
