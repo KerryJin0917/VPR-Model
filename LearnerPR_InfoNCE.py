@@ -17,6 +17,7 @@ from tqdm import tqdm
 from torch.utils.data import Sampler
 import random
 from collections import defaultdict
+from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
 
 # ============================================================================
 # Dataset
@@ -382,18 +383,27 @@ def train(args):
         {"params": loss_params, "lr": args.lr},
     ], weight_decay=args.weight_decay)
 
-    # LR Scheduler: cosine annealing with warmup
     total_steps = args.epochs * len(dataloader)
     warmup_steps = int(0.1 * total_steps)
 
-    def lr_lambda(step):
-        if step < warmup_steps:
-            return step / max(warmup_steps, 1)
-        progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
-        progress = min(progress, 1.0)  # clamp
-        return 0.5 * (1 + math.cos(math.pi * progress))
+    warmup_scheduler = LinearLR(
+        optimizer,
+        start_factor=0.01,
+        end_factor=1.0,
+        total_iters=warmup_steps
+    )
 
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch=-1)
+    cosine_scheduler = CosineAnnealingLR(
+        optimizer,
+        T_max=total_steps - warmup_steps,
+        eta_min=1e-6
+    )
+
+    scheduler = SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_steps]
+    )
 
     # Training
     save_dir = Path(args.save_dir)
