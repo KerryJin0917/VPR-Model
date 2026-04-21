@@ -428,7 +428,7 @@ def train(args):
 
                 B = embeddings.size(0)
                 self_mask = torch.eye(B, device=device).bool()
-                logits[:, :B] = logits[:, :B].masked_fill(self_mask, -1e9)
+                logits[:, :B] = logits[:, :B].masked_fill(self_mask, torch.finfo(logits.dtype).min)
 
                 labels_exp = labels.unsqueeze(1)
                 pos_mask = (labels_exp == labels_exp.T).float().to(device)
