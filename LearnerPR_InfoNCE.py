@@ -440,34 +440,28 @@ def train(args):
                 embeddings = model(images)
                 embeddings = F.normalize(embeddings, dim=1)
                 B = embeddings.size(0)
-                # 1. Get memory bank features AND labels
                 mem, mem_labels = memory_bank.get()
 
-                # 2. Combine current batch and memory bank
                 all_feats = torch.cat([embeddings, mem], dim=0)
                 all_labels = torch.cat([labels, mem_labels], dim=0)
 
-                # 3. Create the POSITIVE mask for the entire concatenated set (B, B + M)
-                # We only care about positive relations between the current batch (rows)
-                # and the whole set (cols).
-                labels_exp = labels.unsqueeze(1) # (B, 1)
-                # Create (B, B+M) mask
-                pos_mask = (labels_exp == all_labels.unsqueeze(0)).float().to(device)
+                all_feats = F.normalize(all_feats, dim=1)
 
+                logits = torch.matmul(embeddings, all_feats.T) / 0.07
 
-                # 4. Compute similarity
-                logits = torch.matmul(embeddings.float(), all_feats.float().T) / 0.07
-
-                # 5. Mask out self-similarity (only within the batch part)
-
+                # mask self similarity (only batch part)
                 self_mask = torch.eye(B, device=device, dtype=torch.bool)
-                logits[:, :B].masked_fill_(self_mask, -1e4)
+                logits[:, :B][self_mask] = -1e9
 
-                # 6. Loss calculation
                 log_prob = F.log_softmax(logits, dim=1)
-                # Calculate loss only for positive pairs
-                base_loss = -(log_prob * pos_mask).sum(1) / (pos_mask.sum(1) + 1e-8)
-                base_loss = base_loss.mean()
+
+                pos_mask = (labels.unsqueeze(1) == all_labels.unsqueeze(0)).float()
+
+                pos_sum = pos_mask.sum(dim=1).clamp(min=1.0)
+
+                loss_per_sample = -(log_prob * pos_mask).sum(dim=1) / pos_sum
+
+                base_loss = loss_per_sample.mean()
 
 
 
@@ -492,7 +486,7 @@ def train(args):
             scaler.step(optimizer)
             scaler.update()
 
-
+            optimizer.step()
             scheduler.step()
 
             # Memory update
