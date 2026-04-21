@@ -177,23 +177,36 @@ class InfoNCELoss(nn.Module):
         super().__init__()
         self.t = temperature
 
-    def forward(self, z, labels):
+    def forward(self, z, labels, all_feats, all_labels):
+        # Move the logit logic here to keep the training loop clean
         z = F.normalize(z, dim=1)
+        all_feats = F.normalize(all_feats, dim=1)
 
-        sim = torch.matmul(z, z.T) / self.t
+        logits = torch.matmul(z, all_feats.T) / self.t
 
-        labels = labels.unsqueeze(1)
-        pos_mask = (labels == labels.T).float().to(z.device)
+        # Stability: Shift logits
+        logits = logits - logits.max(dim=1, keepdim=True)[0]
 
-        # remove self similarity
-        self_mask = torch.eye(sim.size(0), device=z.device)
-        sim = sim.masked_fill(self_mask.bool(), -1e9)
+        # Mask self-similarity
+        B = z.size(0)
+        self_mask = torch.eye(B, device=z.device, dtype=torch.bool)
+        logits[:, :B][self_mask] = -1e9
 
-        log_prob = F.log_softmax(sim, dim=1)
+        log_prob = F.log_softmax(logits, dim=1)
 
-        pos_log_prob = (log_prob * pos_mask).sum(1) / (pos_mask.sum(1) + 1e-8)
+        # Create mask, but ignore the -1 labels
+        pos_mask = (labels.unsqueeze(1) == all_labels.unsqueeze(0)).float()
+        # Ensure we don't calculate loss on the -1 empty entries
+        pos_mask[all_labels == -1] = 0
 
-        return -pos_log_prob.mean()
+        pos_sum = pos_mask.sum(dim=1)
+        valid = pos_sum > 0
+
+        if valid.sum() == 0:
+            return torch.tensor(0.0, device=z.device, requires_grad=True)
+
+        loss = -(log_prob[valid] * pos_mask[valid]).sum(dim=1) / pos_sum[valid].clamp(min=1.0)
+        return loss.mean()
 
 # ============================================================================
 # Model
@@ -296,7 +309,7 @@ class MemoryBank:
         self.bank = torch.randn(size, dim).to(device)
         self.bank = F.normalize(self.bank, dim=1)
         # Add labels storage
-        self.bank_labels = torch.zeros(size, dtype=torch.long).to(device)
+        self.bank_labels = torch.full((size,), -1, dtype=torch.long).to(device)
         self.ptr = 0
 
     @torch.no_grad()
