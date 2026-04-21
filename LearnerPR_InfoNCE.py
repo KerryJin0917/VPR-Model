@@ -301,6 +301,7 @@ class MemoryBank:
 
     @torch.no_grad()
     def update(self, feats, labels): # Accept labels
+        feats = F.normalize(feats, dim=1)
         b = feats.size(0)
         end = self.ptr + b
 
@@ -447,7 +448,10 @@ def train(args):
 
                 all_feats = F.normalize(all_feats, dim=1)
 
-                logits = torch.matmul(embeddings, all_feats.T) / 0.07
+                logits = torch.matmul(embeddings, all_feats.T)
+
+                logits = logits.clamp(-20, 20)
+                logits = logits / 0.07
 
                 # mask self similarity (only batch part)
                 self_mask = torch.eye(B, device=device, dtype=torch.bool)
@@ -457,11 +461,17 @@ def train(args):
 
                 pos_mask = (labels.unsqueeze(1) == all_labels.unsqueeze(0)).float()
 
-                pos_sum = pos_mask.sum(dim=1).clamp(min=1.0)
+                pos_sum = pos_mask.sum(dim=1)
 
-                loss_per_sample = -(log_prob * pos_mask).sum(dim=1) / pos_sum
+                valid = pos_sum > 0
 
-                base_loss = loss_per_sample.mean()
+                loss_per_sample = torch.zeros_like(pos_sum, dtype=torch.float)
+
+                loss_per_sample[valid] = -(
+                        log_prob[valid] * pos_mask[valid]
+                ).sum(dim=1) / pos_sum[valid]
+
+                base_loss = loss_per_sample[valid].mean()
 
 
 
