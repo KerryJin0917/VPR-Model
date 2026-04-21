@@ -68,38 +68,16 @@ class VPRTrainDataset(Dataset):
         image = self.transform(image)
         return image, self.labels[idx]
 
+def load_dataset_a(root):
+    df = pd.read_parquet(os.path.join(root, "test.parquet"))
 
-class VPRTestDataset(Dataset):
-    """Validation dataset for quick metric computation during training."""
+    db_df = df[df["split"] == "database"].sort_values("image_path").reset_index(drop=True)
+    q_df = df[df["split"] == "queries"].sort_values("image_path").reset_index(drop=True)
 
-    def __init__(self, root: str, parquet_file: str = "test.parquet", image_size=(224, 224), max_samples=200):
-        self.root = root
-        df = pd.read_parquet(os.path.join(root, parquet_file))
+    db_paths = db_df["image_path"].tolist()
+    query_paths = q_df["image_path"].tolist()
 
-        # For datasets with role column (dataset_b)
-        if "role" in df.columns:
-            db_df = df[df["role"] == "database"].head(max_samples)
-            q_df = df[df["role"] == "queries"].head(max_samples)
-        else:
-            db_df = df[df["split"] == "database"].head(max_samples)
-            q_df = df[df["split"] == "queries"].head(max_samples)
-
-        self.database_paths = [os.path.join(root, p) for p in db_df["image_path"].values]
-        self.query_paths = [os.path.join(root, p) for p in q_df["image_path"].values]
-        self.all_paths = self.database_paths + self.query_paths
-
-        self.transform = transforms.Compose([
-            transforms.Resize(image_size),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
-
-    def __len__(self):
-        return len(self.all_paths)
-
-    def __getitem__(self, idx):
-        image = Image.open(self.all_paths[idx]).convert("RGB")
-        return self.transform(image), idx
+    return db_paths, query_paths
 
 
 # ============================================================================
@@ -380,7 +358,7 @@ class ImageDataset(Dataset):
         return len(self.image_paths)
 
     def __getitem__(self, idx):
-        path = self.image_paths[idx] # Use the path as-is
+        path = os.path.join(self.root, self.image_paths[idx])
         image = Image.open(path).convert("RGB")
         return self.transform(image), idx
 
@@ -467,7 +445,7 @@ def compute_recall_at_k(rankings, db_labels, query_labels, ks=[1,5,10,20]):
 
     return recalls
 
-def rerank_topk(query_emb, db_emb, rankings, top_m=50):
+def rerank_topk(query_emb, db_emb, rankings, top_m=100):
     reranked = []
 
     for i in range(len(query_emb)):
@@ -499,7 +477,13 @@ def predict(args):
     print(f"Loaded checkpoint: {args.checkpoint} (epoch {checkpoint.get('epoch', '?')})")
 
     # Load database/query paths
-    db_paths, query_paths, db_labels, query_labels = load_db_queries(args.dataset_root, args.dataset_name)
+    if args.dataset_name == "dataset_a":
+        db_paths, query_paths = load_dataset_a(args.dataset_root)
+        db_labels, query_labels = None, None  # no GT for submission
+    else:
+        db_paths, query_paths, db_labels, query_labels = load_db_queries(
+        args.dataset_root, args.dataset_name
+    )
     print(f"Database: {len(db_paths)}, Queries: {len(query_paths)}")
 
     # Encode
@@ -517,11 +501,18 @@ def predict(args):
     rankings = rerank_topk(query_emb, db_emb, full_rankings, top_m=50)
     rankings = rankings[:, :args.top_k]
     # Compute Recall@K
-    recalls = compute_recall_at_k(rankings, db_labels, query_labels)
+    recalls = None
 
-    print("\n--- Recall@K ---")
-    for k, v in recalls.items():
-        print(f"Recall@{k}: {v:.4f}")
+    if db_labels is not None:
+        recalls = compute_recall_at_k(rankings, db_labels, query_labels)
+
+    if recalls is not None:
+        print("\n--- Recall@K ---")
+        for k, v in recalls.items():
+            print(f"Recall@{k}: {v:.4f}")
+
+
+
 
     # Save predictions
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
