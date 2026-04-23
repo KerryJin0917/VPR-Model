@@ -506,7 +506,6 @@ def train(args):
             scaler.step(optimizer)
             scaler.update()
 
-            optimizer.step()
             scheduler.step()
 
             # Memory update
