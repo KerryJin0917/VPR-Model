@@ -272,33 +272,44 @@ class PKBatchSampler(Sampler):
         for idx, label in enumerate(self.labels):
             self.label_to_indices[label].append(idx)
 
-        # keep valid classes
+        # keep only valid classes
         self.valid_labels = [
             l for l in self.label_to_indices
-            if len(self.label_to_indices[l]) >= K
+            if len(self.label_to_indices[l]) >= self.K
         ]
 
-    def __iter__(self):
-        # shuffle classes each epoch
-        random.shuffle(self.valid_labels)
+        if len(self.valid_labels) == 0:
+            raise ValueError("No classes have >= K samples")
 
-        n_batches = len(self.valid_labels) // self.P
+        # safety: prevent silent 0-batch epochs
+        if len(self.valid_labels) < self.P:
+            print(f"[WARN] valid_classes ({len(self.valid_labels)}) < P ({self.P}), reducing P")
+            self.P = len(self.valid_labels)
+
+    def __iter__(self):
+        labels = self.valid_labels.copy()
+        random.shuffle(labels)
+
+        n_batches = len(labels) // self.P
 
         for i in range(n_batches):
-            chosen = self.valid_labels[i*self.P:(i+1)*self.P]
+            chosen = labels[i * self.P : (i + 1) * self.P]
 
             batch = []
             for p in chosen:
                 idxs = self.label_to_indices[p]
 
-                # deterministic per epoch diversity
-                random.shuffle(idxs)
-                batch.extend(idxs[:self.K])
+                # IMPORTANT: do NOT mutate original list
+                if len(idxs) >= self.K:
+                    batch.extend(random.sample(idxs, self.K))
+                else:
+                    # safe fallback (should not happen due to filtering)
+                    batch.extend(random.choices(idxs, k=self.K))
 
             yield batch
 
     def __len__(self):
-        return len(self.valid_labels) // self.P
+        return max(1, len(self.valid_labels) // self.P)
 
 class MemoryBank:
     def __init__(self, size, dim, device):
