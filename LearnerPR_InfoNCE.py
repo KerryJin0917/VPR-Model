@@ -458,8 +458,8 @@ def train(args):
 
             mem, mem_labels = memory_bank.get()
 
-            all_feats = torch.cat([embeddings, mem], dim=0)
-            all_labels = torch.cat([labels, mem_labels], dim=0)
+            all_feats = embeddings
+            all_labels = labels
 
             all_feats = F.normalize(all_feats, dim=1)
             embeddings_f = embeddings.float()
@@ -468,7 +468,9 @@ def train(args):
             logits = torch.matmul(embeddings_f, all_feats_f.T) / temperature
 
             # 🔥 numerical stability clamp
-            logits = logits - logits.max(dim=1, keepdim=True)[0]
+            logits = logits / (logits.norm(dim=1, keepdim=True) + 1e-6)
+            logits = logits / temperature
+            logits = torch.clamp(logits, -50, 50)
             B = embeddings.size(0)
 
              # mask self similarity
