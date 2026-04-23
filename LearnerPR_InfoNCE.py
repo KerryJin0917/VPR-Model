@@ -263,7 +263,7 @@ class TrainableModel(nn.Module):
 # Training Loop
 # ============================================================================
 class PKBatchSampler(Sampler):
-    def __init__(self, labels, P=8, K=4):
+    def __init__(self, labels, P=16, K=4):
         self.labels = np.array(labels)
         self.P = P
         self.K = K
@@ -272,36 +272,33 @@ class PKBatchSampler(Sampler):
         for idx, label in enumerate(self.labels):
             self.label_to_indices[label].append(idx)
 
-        self.labels_unique = list(self.label_to_indices.keys())
+        # keep valid classes
+        self.valid_labels = [
+            l for l in self.label_to_indices
+            if len(self.label_to_indices[l]) >= K
+        ]
 
     def __iter__(self):
-        indices = []
-        # Ensure we don't request more classes than exist
-        num_classes_to_sample = min(self.P, len(self.labels_unique))
+        # shuffle classes each epoch
+        random.shuffle(self.valid_labels)
 
-        # We process in full epochs
-        for _ in range(len(self.labels) // (self.P * self.K)):
-            # Fallback to current classes if we don't have P
-            chosen_p = random.sample(self.labels_unique, num_classes_to_sample)
+        n_batches = len(self.valid_labels) // self.P
 
-            # If we don't have enough classes, duplicate some to fill the P requirement
-            while len(chosen_p) < self.P:
-                chosen_p.append(random.choice(chosen_p))
+        for i in range(n_batches):
+            chosen = self.valid_labels[i*self.P:(i+1)*self.P]
 
             batch = []
-            for p in chosen_p:
-                l = self.label_to_indices[p]
-                # If a specific place doesn't have K images, sample with replacement
-                if len(l) >= self.K:
-                    batch.extend(random.sample(l, self.K))
-                else:
-                    batch.extend(random.choices(l, k=self.K))
+            for p in chosen:
+                idxs = self.label_to_indices[p]
 
-            indices.append(batch)
-        return iter(indices)
+                # deterministic per epoch diversity
+                random.shuffle(idxs)
+                batch.extend(idxs[:self.K])
+
+            yield batch
 
     def __len__(self):
-        return len(self.labels) // (self.P * self.K)
+        return len(self.valid_labels) // self.P
 
 class MemoryBank:
     def __init__(self, size, dim, device):
@@ -458,8 +455,8 @@ def train(args):
 
             mem, mem_labels = memory_bank.get()
 
-            all_feats = embeddings
-            all_labels = labels
+            all_feats = torch.cat([embeddings, mem], dim=0)
+            all_labels = torch.cat([labels, mem_labels], dim=0)
 
             all_feats = F.normalize(all_feats, dim=1)
             embeddings_f = embeddings.float()
@@ -468,9 +465,7 @@ def train(args):
             logits = torch.matmul(embeddings_f, all_feats_f.T) / temperature
 
             # 🔥 numerical stability clamp
-            logits = logits / (logits.norm(dim=1, keepdim=True) + 1e-6)
-            logits = logits / temperature
-            logits = torch.clamp(logits, -50, 50)
+            logits = logits - logits.max(dim=1, keepdim=True)[0]
             B = embeddings.size(0)
 
              # mask self similarity
