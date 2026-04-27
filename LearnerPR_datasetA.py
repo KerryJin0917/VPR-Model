@@ -381,6 +381,20 @@ def encode_images(model, dataset, batch_size, num_workers, device):
 # ============================================================================
 # Simplified Loader (No GitHub Dependencies)
 # ============================================================================
+def load_dataset_b(root):
+    df = pd.read_parquet(os.path.join(root, "test.parquet"))
+
+    db_df = df[df["role"] == "database"].reset_index(drop=True)
+    q_df = df[df["role"] == "queries"].reset_index(drop=True)
+
+    db_paths = db_df["image_path"].tolist()
+    query_paths = q_df["image_path"].tolist()
+
+    # If labels exist (for evaluation)
+    db_labels = db_df["place_id"].values if "place_id" in db_df else None
+    query_labels = q_df["place_id"].values if "place_id" in q_df else None
+
+    return db_paths, query_paths, db_labels, query_labels
 
 def load_db_queries(root, dataset_name):
     import os
@@ -479,11 +493,16 @@ def predict(args):
     # Load database/query paths
     if args.dataset_name == "dataset_a":
         db_paths, query_paths = load_dataset_a(args.dataset_root)
-        db_labels, query_labels = None, None  # no GT for submission
+        db_labels, query_labels = None, None
+
+    elif args.dataset_name == "dataset_b":
+        db_paths, query_paths, db_labels, query_labels = load_dataset_b(args.dataset_root)
+
     else:
+    # fallback for custom datasets
         db_paths, query_paths, db_labels, query_labels = load_db_queries(
-        args.dataset_root, args.dataset_name
-    )
+            args.dataset_root, args.dataset_name
+        )
     print(f"Database: {len(db_paths)}, Queries: {len(query_paths)}")
 
     # Encode

@@ -4,7 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4917ca8b-7155-415a-9c4c-47a782ab4aec" name="Changes" comment="" />
+    <list default="true" id="4917ca8b-7155-415a-9c4c-47a782ab4aec" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/LearnerPR_datasetA.py" beforeDir="false" afterPath="$PROJECT_DIR$/LearnerPR_datasetA.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -63,6 +66,7 @@
       <recent name="C:\Users\Kerry Jin\IdeaProjects\VPR-Model\project-vpr\models" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\Kerry Jin\IdeaProjects\VPR-Model\.idea" />
       <recent name="C:\Users\Kerry Jin\IdeaProjects\VPR-Model" />
       <recent name="C:\Users\Kerry Jin\IdeaProjects\VPR-Model\project-vpr" />
     </key>
